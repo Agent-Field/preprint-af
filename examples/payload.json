@@ -1,0 +1,11 @@
+{
+  "input": {
+    "folder_path": "./examples/serve-paper",
+    "target_venue": "high-impact machine learning systems venue",
+    "field_hint": "machine learning systems",
+    "max_rounds": 6,
+    "allow_web": true,
+    "dry_run": false,
+    "quality_threshold": 0.90
+  }
+}

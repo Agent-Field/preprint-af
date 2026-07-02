@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "preprint-af"
+version = "2.0.0"
+description = "Turn a folder of research into a submission-ready scientific paper, built on AgentField."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+keywords = ["scientific-writing", "paper-generation", "latex", "agentfield", "opencode"]
+dependencies = [
+    "agentfield",
+    "matplotlib",
+    "numpy",
+    "pandas",
+]
+
+[project.urls]
+Homepage = "https://github.com/Agent-Field/preprint-af"
+AgentField = "https://github.com/Agent-Field"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,44 @@
+services:
+  control-plane:
+    image: agentfield/control-plane:latest
+    environment:
+      AGENTFIELD_STORAGE_MODE: local
+      AGENTFIELD_HTTP_ADDR: 0.0.0.0:8080
+    ports:
+      - "${AGENTFIELD_HTTP_PORT:-8080}:8080"
+    volumes:
+      - agentfield-data:/data
+    # NOTE: agentfield/control-plane:latest is a distroless image — no sh, no wget, no curl.
+    # A CMD-based healthcheck cannot run inside the container. The agent SDK retries
+    # connection to the control plane on startup, so service_started is sufficient.
+
+  preprint-af:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      AGENTFIELD_SERVER: http://control-plane:8080
+      AGENT_CALLBACK_URL: http://preprint-af:8001
+      AGENT_NODE_ID: ${AGENT_NODE_ID:-preprint-af}
+      # Provider: OpenRouter. Set OPENROUTER_API_KEY in .env (compose auto-loads it).
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      AGENTFIELD_OPENROUTER_SITE_URL: ${AGENTFIELD_OPENROUTER_SITE_URL:-https://agentfield.ai}
+      AGENTFIELD_OPENROUTER_APP_NAME: ${AGENTFIELD_OPENROUTER_APP_NAME:-AgentField AI}
+      OR_SITE_URL: ${OR_SITE_URL:-https://agentfield.ai}
+      OR_APP_NAME: ${OR_APP_NAME:-AgentField AI}
+      # Default model for both reasoning (.ai) and OpenCode agents: DeepSeek v4 Pro via OpenRouter.
+      AI_MODEL: ${AI_MODEL:-openrouter/deepseek/deepseek-v4-pro}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-openrouter/deepseek/deepseek-v4-pro}
+      HARNESS_MAX_TURNS: ${HARNESS_MAX_TURNS:-40}
+      HARNESS_MAX_BUDGET_USD: ${HARNESS_MAX_BUDGET_USD:-5.00}
+      HARNESS_PERMISSION_MODE: ${HARNESS_PERMISSION_MODE:-auto}
+      PORT: ${PORT:-8001}
+    ports:
+      - "${AGENT_NODE_PORT:-8001}:8001"
+    depends_on:
+      control-plane:
+        condition: service_started
+    restart: on-failure
+
+volumes:
+  agentfield-data:

@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Byte-compile all modules
+        run: python -m py_compile main.py src/preprint_af/app.py src/preprint_af/reasoners/*.py
+      - name: Import check (schemas + helpers, no server)
+        run: |
+          python - <<'PY'
+          import sys, os
+          sys.path.insert(0, "src")
+          from preprint_af.reasoners import helpers, models
+          # slop linter + fallback construction must work with no network
+          from preprint_af.reasoners.models import FidelityAudit
+          assert helpers.safe_ai_fallback(FidelityAudit).confident is False
+          assert helpers.style_contract_markdown()
+          assert helpers.main_tex_skeleton("T", "A", ["01_intro"]).count("\\input") == 1
+          print("import + helpers OK")
+          PY
