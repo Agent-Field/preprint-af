@@ -2,7 +2,7 @@
 
 # preprint-af
 
-### Point it at a research folder. Get a submission-ready paper. Built on [AgentField](https://github.com/Agent-Field?utm_source=github&utm_medium=readme&utm_campaign=preprint-af).
+### You do the research. `preprint-af` writes the paper. Point it at your data and results, get a submission-ready preprint. Built on [AgentField](https://github.com/Agent-Field?utm_source=github&utm_medium=readme&utm_campaign=preprint-af).
 
 [![Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-16a34a?style=for-the-badge)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
@@ -19,12 +19,14 @@
 
 </div>
 
-Most AI writing tools autocomplete plausible prose and invent citations. `preprint-af` writes a real paper from your real results.
+Most AI writing tools autocomplete plausible prose and invent citations. `preprint-af` writes a real paper from results you already have.
 
-Point it at a folder (data, result tables, notebooks, a rough draft, an existing paper) and autonomous agents build the paper around your actual numbers. An evidence ledger traces every claim back to a source. A positioning tournament locks one governing story before a section is written. Parallel agents draft each section and render figures by running your own scripts. Then an autonomous review loop critiques the whole draft (reviewer personas, a narrative critic, a fidelity auditor, and a deterministic slop linter) and self-corrects it round after round until it converges. It compiles to a submission-ready LaTeX PDF, flags missing experiments as `\todobox` items and a `TODO.md`, and never invents a number. Free, open source, one API call.
+> **What it is:** a preprint writer, not a research agent. You run the experiments and gather the data; `preprint-af` turns that finished work into a submission-ready, evidence-grounded paper. It does not design studies, run experiments, or invent results. Where the data to support a claim does not exist, it flags a `\todobox` and a `TODO.md` entry instead of making one up.
+
+Point it at a folder (data, result tables, notebooks, a rough draft, an existing paper) and autonomous agents build the paper around your actual numbers. An evidence ledger traces every claim back to a source. A positioning tournament locks one governing story before a section is written. Parallel agents draft each section and render figures by running your own scripts. Then an autonomous review loop critiques the whole draft (reviewer personas, a narrative critic, a fidelity auditor, and a deterministic slop linter) and self-corrects it round after round until it converges. It compiles to a submission-ready LaTeX PDF and never invents a number. Free, open source, one API call.
 
 <p align="center">
-<img src="assets/hero.png" alt="preprint-af: point it at a research folder, get a submission-ready paper" width="100%" />
+<img src="assets/hero.png" alt="preprint-af: you do the research, it writes the paper from your data and results" width="100%" />
 </p>
 
 Real output, not a mockup: the bundled example ([`examples/serve-paper`](examples/serve-paper)) compiled by `preprint-af` into [`main.pdf`](examples/serve-paper/main.pdf). Page one and a figure page from the seven-phase run.
