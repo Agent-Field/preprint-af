@@ -37,6 +37,17 @@ Real output, not a mockup: the bundled example ([`examples/serve-paper`](example
 
 ---
 
+## Why preprint-af
+
+- **Writes like a scientist, not a chatbot.** Claims-first paragraphs, precise language, varied sentence rhythm. A deterministic linter strips AI tells (em dashes, hype phrases, uniform cadence) before any model spends a token judging the prose. No writing skill required on your end.
+- **Rigorous and evidence-grounded.** Every quantitative claim traces to a fact in your data. A fidelity auditor fails the build on any number or citation it cannot source, so the paper cannot drift into confabulation. It never invents a result.
+- **Finds the strongest story.** A positioning tournament tests five to six framings of your results and locks the one that lands, so the whole paper argues in one direction instead of listing findings.
+- **Organizes the narrative flow.** A blueprint gives every section a job and a transition contract (what it must establish for the next), and a narrative critic checks that the body delivers what the title promises.
+- **Tells you what would make it stronger.** A reviewer panel raises peer-review-grade objections, and `REVIEW.md` plus `TODO.md` collect the missing experiments, soft claims, and open gaps as concrete next steps.
+- **One call, no setup.** Point it at a folder and get a compiled LaTeX PDF with real figures. No prompts to engineer, no template to fill.
+
+---
+
 ## One-Call DX
 
 ```bash
