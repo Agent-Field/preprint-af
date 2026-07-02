@@ -99,28 +99,6 @@ every phase and revision round is a commit you can diff or roll back to.
 <img src="assets/architecture.png" alt="preprint-af seven-phase paper pipeline: evidence ledger, positioning tournament, blueprint, parallel build, compile gate, critique and repair loop" width="100%" />
 </p>
 
-```mermaid
-flowchart TD
-    A[research folder] --> P0[P0 · Evidence ledger<br/>facts traced to your data]
-    P0 --> P1[P1 · Positioning tournament<br/>run once]
-    P1 --> P2[P2 · Blueprint<br/>section beats + transition contract]
-    P2 --> P3[P3 · Parallel build]
-
-    subgraph P3 [ ]
-      direction LR
-      S[section writers] --- F[figure builders<br/>run scripts on real data] --- B[bibliography<br/>web-verified citations]
-    end
-
-    P3 --> P4[P4 · Compile gate · latexmk]
-    P4 --> LOOP{P5/P6 · converge?}
-    LOOP -- personas ∥ narrative ∥ fidelity ∥ slop --> R[P6 · targeted repairs]
-    R --> P4
-    LOOP -- threshold / plateau / clean --> OUT[main.pdf · TODO.md · REVIEW.md]
-
-    classDef gate fill:#fff3e0,stroke:#e65100;
-    class P4,LOOP gate;
-```
-
 Seven phases, driven by [AgentField](https://github.com/Agent-Field?utm_source=github&utm_medium=readme&utm_campaign=preprint-af) reasoners for the thinking
 and [OpenCode](https://opencode.ai?utm_source=github&utm_medium=readme&utm_campaign=preprint-af) coding agents for every read and write of a real file:
 
