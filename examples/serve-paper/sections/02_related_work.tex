@@ -1,0 +1,59 @@
+\section{Related Work}
+
+Semantic caching originated in relational database systems, where Dar et
+al.~\cite{dar1996semantic} introduced cached query results and semantic
+containment checks to reduce query-processing cost. For LLM serving, the
+dominant architecture translates this concept to vector spaces. GPTCache
+\cite{bang2023gptcache} embeds incoming prompts, retrieves the nearest
+cached embedding by cosine similarity, and serves the stored response if
+the similarity clears a single configured threshold. MeanCache
+\cite{gill2025meancache} targets a federated, user-centric deployment
+setting but retains the identical univariate fixed-threshold gate.
+
+vCache \cite{schroeder2026vcache}, the strongest learned baseline,
+observes that a global threshold is miscalibrated across heterogeneous
+embedding neighborhoods. It replaces the global cutoff with per-embedding
+thresholds calibrated online from local similarity statistics. This
+innovation improves calibration, but it does not alter \emph{which
+evidence} drives the decision: the reuse verdict still depends on top-1
+similarity alone. In all three systems GPTCache, MeanCache, and vCache,
+the top-$k$ nearest-neighbor search produces several retrieval-geometry
+signals: the runner-up similarity, the margin between the top-1 and
+runner-up matches, and the local embedding density around the query. All
+three signals are computed and then discarded.
+
+This uniformity reveals a structural gap. Every existing semantic cache
+for LLMs treats gating as thresholding on a single feature. The decision
+boundary is a scalar cutoff, whether it is global, per-embedding, or
+hand-tuned. No prior system casts cache gating as a binary classification
+problem amenable to supervised learning. No system exploits the richer
+retrieval-geometry features that the cache already produces. The notion
+of a learned multi-feature gate that predicts reuse correctness from the
+full retrieval signature, while leaving the cache index and eviction
+policy unchanged, has not been proposed.
+
+SERVE fills this gap with a light-weight gradient-boosted tree ensemble
+that operates over four zero-cost features: top-1 similarity, margin,
+runner-up similarity, and local density. The gate intercepts the cache's
+retrieval result, scores the feature vector, and outputs a binary decision
+node by node. The features are byproducts of the existing nearest-neighbor
+lookup, so the gate adds no further embedding calls or index operations to
+the retrieval pipeline. The ensemble architecture provides sub-microsecond
+inference latency and explicit, inspectable decision rules. The gate is a
+standalone component compatible with any semantic cache backend, and
+this architectural decoupling, together with the supervised classification
+formulation, distinguishes the approach from prior caching systems.
+
+A second, orthogonal gap concerns query recurrence. No prior work on
+semantic caching analyzes how gating effectiveness varies with the
+frequency at which queries reappear in the workload. SERVE's relative
+hit-rate gain over a fixed-threshold gate at a 1\% false-serve budget
+grows monotonically with recurrence, from $+21.3\%$ at $r=0.2$ to
+$+81.0\%$ at $r=0.9$, where $r$ is the proportion of test queries that
+draw from the cache.
+% E6
+Recurrence-aware evaluation exposes a fresh dimension for designing and
+benchmarking cache gating mechanisms, and it explains why the largest
+absolute gains concentrate in the high-recurrence, strict-budget regime
+where even modest per-query improvements compound over many repeated
+serves.

@@ -1,0 +1,195 @@
+{
+  "round": 1,
+  "persona_reviews": [
+    {
+      "persona": "You are an exact-subfield domain expert reviewing a manuscript for a serious venue in your own specialty. You have published the closest related work and you know the state of the art cold. Judge the science, not the wording: is the central result genuinely novel relative to what already exists, or is it a known result in new clothing? Is the technical depth real, or does the paper stop at the surface where the hard problem begins? Does the main claim actually matter to the field, or is it a marginal delta on a solved problem? You are unimpressed by breadth and moved only by a specific, meaningful advance. Flag places where the contribution is overstated relative to prior art, where a key technical step is asserted rather than established, and where the result, even if true, would not change how anyone in the subfield works.",
+      "issues": [],
+      "acceptance_risk": 0.0,
+      "verdict": "",
+      "confident": false
+    },
+    {
+      "persona": "You are a skeptical methods and statistics reviewer whose job is to find the ways this paper's evidence fails to support its conclusions. Hunt for overclaiming: conclusions stated with more certainty than the data allows, causal language on correlational evidence, and generalization beyond the tested regime. Check the baselines: are they the strong, current ones a critic would demand, or weak strawmen? Check for missing ablations that would isolate which component actually drives the reported gain. Check for missing error bars, confidence intervals, seeds, and variance reporting: is a difference claimed without any evidence it is not noise? Check whether the evaluation protocol (splits, metrics, tuning) could leak or flatter the proposed method. Every quantitative claim that lacks the statistical support a careful reviewer would require is an issue.",
+      "issues": [
+        {
+          "section": "method",
+          "issue": "The method description repeatedly states the gate uses four scalar features (top-1 similarity, cosine margin, runner-up similarity, local embedding density), but Section 3's derivation shows that margin ≡ top-1 − runner-up, making runner-up fully determined by top-1 and margin. Using all three creates exact linear dependence, adding no new information and risking collinearity in the tree model. The redundancy is not acknowledged or justified.",
+          "fix_hint": "Either drop the runner-up similarity feature and retrain on the three independent features, or provide a clear argument (with empirical evidence) for why this multicollinearity is harmless or beneficial for the gradient-boosted tree.",
+          "severity": "major"
+        },
+        {
+          "section": "results",
+          "issue": "The abstract and conclusion claim an 11.9% improvement in hit rate at a strict 1% false-serve budget, but no measure of variance is reported. No confidence intervals, standard deviations, or results from repeated runs with different random seeds are provided for this headline metric, so the reader cannot judge whether the gain exceeds noise.",
+          "fix_hint": "Report confidence intervals (e.g., via bootstrapping) or error bars for the hit rate at the specified operating point, and clarify over how many runs/seeds the result is computed.",
+          "severity": "major"
+        },
+        {
+          "section": "results",
+          "issue": "The marginal ablation claims that margin alone recovers 83% of the total gain, but the ablation is defined ambiguously: the space of gate variants is not fully enumerated. The claim relies on a single comparison (margin-only gate vs. four-feature gate vs. similarity-only baseline) without evaluating all subsets (e.g., margin+top-1 vs. margin alone; density+top-1 vs. density alone), so interaction effects are unknown.",
+          "fix_hint": "Provide a full ablation table across all meaningful feature subsets, or clearly define 'total gain' and '83%' with exact formulas (e.g., difference in AUC or hit rate at fixed budget) so the attribution is unambiguous.",
+          "severity": "major"
+        },
+        {
+          "section": "experimental_setup",
+          "issue": "The training/evaluation protocol splits QQP into train/val/dev sets, but the gate is a per-cache model retrained for each experimental configuration. No details are given on how the development set is used for hyperparameter tuning or threshold selection for the baselines, and whether the reported test-set hit rate at the strict budget was influenced by any look at the test set (e.g., for threshold calibration). This risks leakage or overfitting the operating point.",
+          "fix_hint": "Describe the precise tuning procedure for all baselines and the proposed gate, specifying that all thresholds/budgets were set using only the validation set, and confirm the test set was held out until final evaluation.",
+          "severity": "major"
+        },
+        {
+          "section": "results",
+          "issue": "The evaluation reports hit rate at a 'strict 1% false-serve budget', but the definition of false-serve budget appears to be a post-hoc threshold on the gate output or a target operating point on the ROC curve relative to the test set. If the budget is enforced by thresholding on the test set, the claim is an optimisation on the evaluation set, not an out-of-sample guarantee.",
+          "fix_hint": "Clearly state whether the threshold achieving ≤1% false-serve rate was determined on the validation set and then applied to the test set without adjustment.",
+          "severity": "major"
+        },
+        {
+          "section": "global",
+          "issue": "The paper claims applicability to 'production LLM serving' and 'any similarity-based reuse rule', but all experiments use only two sentence-pair datasets (QQP and PAWS) and two embedding models (MiniLM and mpnet). No domain beyond paraphrase detection is tested; code search, multilingual, and retrieval-augmented generation are explicitly left to future work yet the strong generalisation claims remain.",
+          "fix_hint": "Tone down generalisation claims to reflect the narrow evaluation regime, or add at least one out-of-domain experiment (e.g., a FAQ/customer-support dataset) to support the claimed breadth.",
+          "severity": "major"
+        },
+        {
+          "section": "experimental_setup",
+          "issue": "The high-recurrence regime is simulated by artificial duplication of test queries according to a parameter r, not by sampling from a real production traffic trace with natural repeat patterns. This synthetic construction may amplify or distort the apparent gain in ways not representative of real caches, yet conclusions are presented as 'real-world performance predictions.'",
+          "fix_hint": "Validate the simulated recurrence model against at least one public production-like trace (e.g., the MS MARCO conversational search logs or a FAQ query log) or clearly label all recurrence-based results as synthetic and discuss potential biases introduced.",
+          "severity": "major"
+        },
+        {
+          "section": "results",
+          "issue": "Figures 1, 2, and 4 show relative gain with no indication of absolute hit rates for the baselines, making it impossible to assess whether the 11.9% improvement reflects a jump from 0.01 to 0.0112 or from 0.30 to 0.3357—a crucial distinction for practical impact.",
+          "fix_hint": "Report absolute hit rates for all methods in tables or on the plots, so readers can evaluate practical significance and compute absolute lift.",
+          "severity": "minor"
+        },
+        {
+          "section": "results",
+          "issue": "The paper claims that the gate run time is 0.8 µs with zero standard deviation across runs, suggesting perfect determinism, but latency measurements typically exhibit jitter. The claim of zero variance is suspect and suggests insufficient measurement resolution or an averaged single-run timing.",
+          "fix_hint": "Report mean, standard deviation, and percentiles of wall-clock latency over many independent runs on a representative machine, and state the number of runs and measurement methodology.",
+          "severity": "minor"
+        },
+        {
+          "section": "method",
+          "issue": "The local embedding density feature is not formally defined; the method section says it is computed from the top-k distances but gives no equation or precise algorithm. Without a formal definition the method is not reproducible.",
+          "fix_hint": "Provide a mathematical definition of the local density feature (e.g., the inverse of the mean distance to the top-K neighbours, or kernel density estimate) with parameters, so the feature can be exactly replicated.",
+          "severity": "major"
+        },
+        {
+          "section": "experimental_setup",
+          "issue": "The paper reports using 'a small set of synthetic queries to fine-tune thresholds' for vCache, but gives no details about the synthetic data generation procedure, its size, or domain. Reproducing the vCache baseline comparison is impossible without this specification.",
+          "fix_hint": "Describe the synthetic query construction process, its size, and how thresholds were tuned, or adopt the original vCache tuning protocol as published to ensure fairness.",
+          "severity": "major"
+        },
+        {
+          "section": "results",
+          "issue": "The paper compares against vCache, but vCache is a retrieval-augmented probabilistic cache that uses uncertainty quantification from the LLM itself, whereas SERVE is purely embedding-based. The comparison therefore conflates the gating mechanism with the cache architecture. A fairer baseline would be a similarity+margin rule using the same embedding backend without a learned gate.",
+          "fix_hint": "Add an embedding-based margin heuristic baseline (e.g., threshold on cosine margin alone) and compare against it, or acknowledge the architectural mismatch and discuss its implications.",
+          "severity": "major"
+        }
+      ],
+      "acceptance_risk": 0.92,
+      "verdict": "The paper proposes an intuitively appealing margin feature for semantic cache gating, but the empirical support is deeply flawed. Central claims rest on a single evaluation point, undefined features, potential test-set leakage, and missing variance estimates. The ablation is incomplete and the baseline comparisons are confounded. Generalisation claims far exceed the narrow paraphrase-domain evidence. Acceptance in current form is unlikely without a major revision that adds rigorous statistical reporting, a clear and reproducible evaluation protocol, and either broad evaluation or substantially narrowed claims.",
+      "confident": true
+    },
+    {
+      "persona": "You are an editor at a high-impact venue deciding, on the first page alone, whether this paper earns a reader's continued attention. Judge engagement and framing. Does the title pull, or is it generic keyword soup that could sit on a hundred papers? Does the abstract deliver a complete arc (problem, gap, approach, main quantitative result, implication) or does it trail off into vague promises? Do the opening paragraphs make the stakes concrete and specific in the first few sentences, or do they warm up slowly with background nobody needs? A reader decides fast; anything that makes the first page forgettable, hedged, or slow is a problem. Flag weak titles, abstracts that hide the result, and openings that bury the lede or fail to make the reader care.",
+      "issues": [
+        {
+          "section": "front_matter",
+          "issue": "Title is generic keyword soup: 'Cosine Margin Predicts Semantic Cache Reliability' could sit on a hundred papers and does not signal novelty, method, or magnitude of improvement.",
+          "fix_hint": "Reframe to be specific and result-anchored, e.g., 'Margin-Aware Gating Improves LLM Cache Hit Rate by 11.9% at 1% False-Serve Budget' or similar.",
+          "severity": "major"
+        },
+        {
+          "section": "front_matter",
+          "issue": "Abstract buries the primary quantitative result until near the end. The hit rate, false-serve budget, and relative improvement should appear in the first two sentences to anchor the contribution.",
+          "fix_hint": "Move 'hit rate of 0.0378 at a strict 1% false-serve budget, an 11.9% improvement' and the comparison to baselines into the opening lines after problem statement.",
+          "severity": "major"
+        },
+        {
+          "section": "introduction",
+          "issue": "Opening paragraph is poetic but vague ('similarity to a nearest neighbor is a poor proxy for semantic equivalence') and delays the concrete problem and stakes for a general audience. The first page does not immediately make the reader care about the specific application and impact.",
+          "fix_hint": "Start with a concrete scenario—deployed LLM caches wasting hits or serving wrong answers—and quantify the cost of the current threshold rule within the first two sentences before abstracting to geometry.",
+          "severity": "major"
+        },
+        {
+          "section": "introduction",
+          "issue": "Incomplete sentence mid-introduction: 'This margin, along with the runner-up similarity and the local density of cache entries, is computed and then discarded by every deployed semantic cache~\\cite{ba..straints combined with sustained repeat traffic...' The citation is truncated and the sentence abruptly transitions to unrelated content about a grid figure.",
+          "fix_hint": "Complete the citation (likely bang2023gptcache or similar) and remove the abrupt jump into figure description. Move the figure reference to appropriate experimental or analytical context.",
+          "severity": "major"
+        },
+        {
+          "section": "global",
+          "issue": "Fragmented narrative flow: sections describing 'best regime grid' and 'full parameter grid' appear in conclusion with detailed figure captions and speculative discussion of production regimes, undermining a crisp, forward-looking ending.",
+          "fix_hint": "Relocate the regime analysis to results or analysis sections. Reserve the conclusion for a concise summary of main findings, limitations already stated, and forward-looking outlook without new figures.",
+          "severity": "minor"
+        },
+        {
+          "section": "front_matter",
+          "issue": "Abstract lacks a clear indication of the evaluated scale (datasets, embedding models, cache configurations) beyond mentioning QQP. The generality of the claim is unclear at first glance.",
+          "fix_hint": "Add a brief note on evaluation scope: 'trained and evaluated on QQP and PAWS with MiniLM and mpnet embeddings' to contextualize the result.",
+          "severity": "minor"
+        }
+      ],
+      "acceptance_risk": 0.7,
+      "verdict": "The paper presents a technically sound, low-cost improvement for semantic caching with a strong geometric intuition. However, the first page fails to grab the reader due to a weak title that obscures the result, an abstract that hides the primary quantitative outcome, and an opening paragraph that warms up too slowly with abstract statements rather than concrete stakes. The introduction also contains a garbled citation and a non-sequitur transition that severely disrupts readability. These front-matter issues significantly increase the risk of an early rejection. Fixing them to showcase the 11.9% hit-rate gain and the plug-and-play nature of the gate will dramatically improve perceived impact.",
+      "confident": true
+    },
+    {
+      "persona": "You are a careful, literal reader tracking the paper's internal mechanics as you go. Track every symbol and piece of notation: is each equation, variable, and term defined before it is used, or does the paper reference notation the reader has not met yet? Track figures and tables: is each one placed near, and no earlier than, its first textual reference, and is every figure actually referenced in the prose? Track section-to-section comprehension: can you follow the argument from one section into the next without a gap, a forward reference to something not yet established, or an unexplained leap? You are the reader who gets stuck on the concrete confusion everyone else glosses over. Flag undefined-before-use notation, misplaced or unreferenced figures, and any point where the reading breaks down.",
+      "issues": [],
+      "acceptance_risk": 0.5,
+      "verdict": "persona review crashed: LLM call to openrouter/deepseek/deepseek-v4-pro timed out after 240.0s (asyncio safety net)",
+      "confident": false
+    }
+  ],
+  "narrative": {
+    "transition_issues": [
+      {
+        "section": "sections/04_architecture.tex",
+        "issue": "The section ends by introducing the edge over similarity-only gating but does not logically bridge to the ablation experiments that begin section 05. The reader expects a statement like 'to quantify how much each feature contributes, we conduct an ablation study' to connect the architecture to the experimental design.",
+        "fix_hint": "Add a sentence at the end of section 04 that explicitly announces the ablation-motivated decomposition and links to section 05.",
+        "severity": "minor"
+      },
+      {
+        "section": "sections/06_analysis.tex",
+        "issue": "The analysis section opens by describing the high-recurrence regime without first recapitulating how the previous section established the overall performance edge. The transition from section 05's main results to the regime analysis is abrupt.",
+        "fix_hint": "Open section 06 with a sentence that summarizes the main result from section 05 and states the goal of characterizing when that gain is largest.",
+        "severity": "minor"
+      }
+    ],
+    "promise_alignment_issues": [
+      "The abstract promises 'ablation shows that the margin alone recovers 83% of the total gain,' which the body delivers via the 1% budget ablation statement. However, the title 'Cosine Margin Predicts Semantic Cache Reliability' implies a broad claim beyond the QQP/MiniLM setting that the text does not fully support with evidence beyond the studied datasets and models; the body's limitations section acknowledges this, but the front matter does not qualify the scope, creating mild over-delivery.",
+      "The abstract states 'the gate runs in 0.8 µs,' which is delivered in the body, but the abstract does not mention that this latency is measured under specific conditions (a single run with zero standard deviation) and for a particular model, which the body clarifies. This is a minor over-delivery of precision.",
+      "The abstract mentions 'outperforming the vCache baseline' without specifying that vCache is used as a fixed-encoder, count-based baseline in the same feature space; the body clarifies this but the front matter implies a direct, unqualified comparison to the full vCache system as published, which may be over-delivering on the comparison scope."
+    ],
+    "arc_assessment": "The paper constructs a clear analytical arc: it motivates the problem of unreliable absolute similarity for semantic caching, introduces margin as a decision-theoretic confidence signal, presents a lightweight gate that leverages this signal, demonstrates improved hit-rate/reliability trade-offs, and isolates margin as the dominant contributor through ablation. The sequence builds belief in the main claim efficiently, though a sharper transition from architecture to ablation and from results to regime analysis would tighten the narrative. Overall, the story is coherent and the evidence mounts progressively.",
+    "score": 0.85,
+    "confident": true
+  },
+  "fidelity": {
+    "unsupported_claims": [
+      "fidelity audit crashed: LLM call to openrouter/deepseek/deepseek-v4-pro timed out after 240.0s (asyncio safety net)"
+    ],
+    "number_mismatches": [],
+    "citation_issues": [],
+    "blocking": true,
+    "score": 0.0,
+    "confident": false
+  },
+  "slop": {
+    "violations": [
+      {
+        "file": "main.tex",
+        "line": 24,
+        "rule": "em_dash",
+        "excerpt": "Semantic caches reduce large language model serving costs by reusing responses to similar past queries, but their practi"
+      },
+      {
+        "file": "sections/01_intro.tex",
+        "line": 37,
+        "rule": "bullet_misuse",
+        "excerpt": "\\begin{itemize}"
+      }
+    ],
+    "score": 0.96
+  },
+  "confident": false
+}

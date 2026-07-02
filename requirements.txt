@@ -1,4 +1,4 @@
-agentfield
+agentfield>=0.1.96
 matplotlib
 numpy
 pandas

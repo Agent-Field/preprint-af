@@ -1,0 +1,37 @@
+\section{Introduction}
+
+The margin between the top-1 and runner-up similarity scores, the gap that separates a cache hit from its nearest competitor, is computed and then discarded by every deployed semantic cache~\cite{bang2023gptcache,gill2025meancache,schroeder2026vcache}. This discarded signal is a first-order predictor of serve correctness: when the margin is large, the nearest neighbor is a confident match; when it is small, even a high top-1 similarity may be spurious.
+% E15
+Deployed semantic caches that gate on a fixed similarity threshold alone routinely serve incorrect responses or miss hits, because similarity magnitude is a weak proxy for semantic equivalence. What matters is whether a cached entry stands clearly apart from its competitors.
+
+Large language model (LLM) inference is expensive, and semantic caching has emerged as a practical strategy to amortize this cost by reusing past responses for queries whose embeddings fall close to previously cached entries. Deployed systems such as GPTCache~\cite{bang2023gptcache} and MeanCache~\cite{gill2025meancache} reduce API expenditure and tail latency in production pipelines. The central design tension in all such caches is the gating decision: given a candidate nearest-neighbor match from the cache, should the stored answer be served, or should the query be forwarded to the LLM to guard against an incorrect reuse? The dominant gating strategy is a fixed similarity threshold. If the cosine similarity between the incoming query embedding and its nearest cache entry exceeds a hand-tuned scalar, the cached answer is served; otherwise, the LLM is called.
+
+This threshold rule embeds a fragile assumption: that absolute similarity magnitude is a reliable proxy for semantic equivalence. In practice, similarity scores concentrate in high-dimensional spaces, and two queries can share a high cosine value without carrying the same intent. Conversely, a query whose nearest neighbor is genuinely paraphrastic may receive only a modest similarity if the embedding region is diffuse. The consequence is a structural trade-off. Lowering the threshold increases cache hits but risks serving semantically mismatched responses; raising it avoids errors but discards valid reuse opportunities. The fixed threshold wastes hits at every point along this frontier.
+
+We argue that similarity alone is insufficient because it ignores the geometry of the local embedding neighborhood. The margin between the top-1 and runner-up similarity scores captures how uniquely a cached entry stands out from its competitors, a signal grounded in decision-theoretic nearest-neighbor classification~\cite{chow1970reject}. When the margin is large, the nearest neighbor is a confident match; when it is small, even a high top-1 similarity may be spurious. This margin, along with the runner-up similarity and the local density of cache entries, is computed and then discarded by every deployed semantic cache~\cite{bang2023gptcache,gill2025meancache,schroeder2026vcache}.
+% E15
+
+We propose the Semantic Embedding Reuse and Verification Engine (SERVE), a lightweight, pluggable gate that exploits these discarded signals to make reuse decisions. SERVE takes a 4-dimensional feature vector consisting of the top-1 similarity \(s_1\), the margin \(m = s_1 - s_2\), the runner-up similarity \(s_2\), and the local density \(\rho\) (mean similarity over the \(k=8\) nearest cache entries), and feeds them into a gradient-boosted tree~\cite{friedman2001greedy} with 150 estimators and maximum depth 3.
+% E1
+Because every feature is a byproduct of the \(k\)-nearest-neighbor search that the cache already performs, the gate adds no extra embedding computation or index lookup.
+% E14
+Inference costs 0.8\,\(\mu\)s per query.
+% E5
+The gate is trained on a small labeled split in which each candidate match is marked as a correct or incorrect serve, optimizing a binary classification objective, and the predicted probability of a correct serve is thresholded against a user-chosen false-serve budget at deployment.
+
+We evaluate SERVE on 100k QQP question pairs embedded with MiniLM~\cite{wang2020minilm}, partitioned into 60k cache, 20k gate-training, and 20k test entries over 4 random seeds.
+% E12
+At a strict 1\% false-serve budget, SERVE achieves a hit rate of 0.0378, an 11.9\% relative improvement over the fixed similarity threshold and a 6.5\% improvement over the learned vCache threshold~\cite{schroeder2026vcache}.
+% E2
+The margin feature alone accounts for 83\% of this improvement.
+% E4
+
+Our contributions are fourfold.
+\begin{itemize}
+  \item We formulate cache gating as a learned classification problem over retrieval-geometry features, introducing the margin signal as a first-order predictor of serve correctness.
+  \item We build SERVE, a sub-microsecond gradient-boosted gate that imposes zero additional retrieval cost and is compatible with any semantic cache backend.
+  \item We demonstrate consistent hit-rate improvements over fixed-threshold and vCache baselines at every false-serve budget on QQP, with the largest gains concentrated in the strict-budget, high-recurrence regime.
+  \item We provide the first analysis of how query recurrence patterns interact with gating policy, showing that SERVE's advantage compounds under realistic workload skew.
+\end{itemize}
+
+The remainder of the paper formalizes the gating problem and the SERVE architecture (Section~3), describes the experimental setup (Section~4), presents the main results, ablation, and overhead measurements (Section~5), analyzes recurrence effects, the learned decision boundary, and embedding quality (Section~6), and concludes with limitations and future directions (Section~7). We begin by reviewing related work and the limitations of current caching approaches.

@@ -29,12 +29,19 @@ services:
       # Default model for both reasoning (.ai) and OpenCode agents: DeepSeek v4 Pro via OpenRouter.
       AI_MODEL: ${AI_MODEL:-openrouter/deepseek/deepseek-v4-pro}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-openrouter/deepseek/deepseek-v4-pro}
+      AGENTFIELD_HARNESS_TIMEOUT_SECONDS: ${AGENTFIELD_HARNESS_TIMEOUT_SECONDS:-1800}
+      OPENCODE_MAX_CONCURRENT: ${OPENCODE_MAX_CONCURRENT:-10}
       HARNESS_MAX_TURNS: ${HARNESS_MAX_TURNS:-40}
       HARNESS_MAX_BUDGET_USD: ${HARNESS_MAX_BUDGET_USD:-5.00}
       HARNESS_PERMISSION_MODE: ${HARNESS_PERMISSION_MODE:-auto}
       PORT: ${PORT:-8001}
     ports:
       - "${AGENT_NODE_PORT:-8001}:8001"
+    volumes:
+      # Persist generated run workspaces, PDFs, figures, reviews, and logs on the host.
+      - ./.tmp:/app/.tmp
+      # Let Docker runs accept the same absolute research-folder paths used on the host.
+      - ${HOST_PAPERS_ROOT:-/Users/santoshkumar/Documents/agentfield/papers}:/Users/santoshkumar/Documents/agentfield/papers:ro
     depends_on:
       control-plane:
         condition: service_started

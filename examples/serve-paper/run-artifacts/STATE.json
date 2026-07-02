@@ -1,0 +1,13 @@
+{
+  "phase": "critique",
+  "round": 2,
+  "total_score": 0.7115,
+  "persona_score": 0.3,
+  "narrative_score": 0.9,
+  "fidelity_score": 0.95,
+  "slop_score": 0.96,
+  "compile_ok": true,
+  "repairs_applied": 6,
+  "stop": false,
+  "stop_reason": "continue"
+}

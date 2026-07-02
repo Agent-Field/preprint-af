@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
     PATH="/root/.opencode/bin:${PATH}"
 
 WORKDIR /app
@@ -17,7 +18,9 @@ RUN apt-get update && \
 
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /app/requirements.txt
+    pip install --no-cache-dir -r /app/requirements.txt && \
+    python -c "import agentfield.harness.providers.opencode" && \
+    opencode --version
 
 COPY . /app/
 

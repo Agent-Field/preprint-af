@@ -1,0 +1,47 @@
+\section{Conclusion}
+
+SERVE introduces a margin-aware, tree-based gate for semantic LLM caches
+that achieves higher hit rates at controllable false-serve budgets. Where
+every deployed semantic cache discards the runner-up similarity after
+nearest-neighbor search, SERVE repurposes it, together with the margin
+between the top two matches, as input to a gradient-boosted classifier
+that decides whether a cached answer can be safely reused.
+% E15
+
+The margin alone accounts for 83\,\% of the total hit-rate improvement
+over a similarity-only gate at a 1\,\% false-serve budget.
+% E4
+The gate adds 0.8\,$\mu$s of inference latency per query with 0.0\,\textmu s standard deviation across runs, and none of its four features requires
+an additional embedding call or index lookup: every figure is a byproduct
+of the top-$k$ search the cache already performs, making SERVE a pluggable
+component compatible with any similarity-based reuse rule.
+% E5
+% E14
+On QQP with MiniLM embeddings, SERVE improves hit rate by 11.9\,\% over a
+fixed threshold and 6.5\,\% over vCache at $\beta \le 1\,\%$, and the
+gain grows monotonically with query recurrence, exceeding $3\times$ the
+served hits in the strictest-budget, highest-recurrence cells.
+% E2
+% E7
+
+Reducing the number of LLM calls needed to satisfy a stream of queries
+lowers inference cost and latency. A gate that ships as a standalone,
+sub-microsecond component lowers the barrier to adopting semantic caching
+in production, which in turn makes large-model deployment feasible under
+tighter resource constraints.
+
+Several directions merit further investigation. Extending the gate to
+multi-turn conversations, where the reuse decision depends on dialogue
+context, would test whether the margin signal retains predictive power
+when the cache contains utterances rather than standalone questions.
+Dynamic cache eviction policies that account for the margin distribution
+of stored entries could tighten the hit-rate--reliability frontier.
+Online learning of the gate, retraining incrementally as cache content
+drifts, would eliminate the current one-time training requirement.
+
+Cosine similarity alone is not a reliable signal for semantic cache
+reuse. The margin between the top match and its runner-up, discarded by
+every incumbent system, is the missing piece that makes the reuse
+decision tractable. SERVE demonstrates that recovering this signal costs
+nothing and delivers substantial, measurable improvement at the operating
+points that matter for real deployments.

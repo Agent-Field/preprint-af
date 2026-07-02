@@ -1,0 +1,29 @@
+\section{Experimental Setup}
+
+To evaluate whether margin-aware gating tightens the hit-rate-versus-reliability frontier under controlled conditions, we construct a retrieval-based pipeline that isolates the reuse decision from the cache backend. Every method in the comparison sees identical cache contents and identical nearest-neighbor retrieval output. Only the rule that decides whether the top-1 hit is served changes across conditions.
+
+The primary dataset is Quora Question Pairs (QQP)~\cite{quora2017qqp}, a corpus of question pairs with human-annotated duplicate labels from which we extract ground-truth correctness for each candidate cache serve. We embed 100k questions with \texttt{sentence-transformers/all-MiniLM-L6-v2}~\cite{wang2020minilm,reimers2019sentencebert}, producing 384-dimensional L2-normalized vectors.
+% E12
+The embeddings are partitioned into a 60k-entry cache, a 20k gate-training split, and a 20k held-out test split.
+% E2
+The gate is trained on retrieval geometry computed from the training split against the cache and evaluated on the test split, with the cache population held fixed across all methods. Every configuration is repeated over 4 random seeds; all headline numbers are reported as means with per-seed standard deviation at the primary operating point.
+% E2
+% E12
+\todobox{Record the specific integer random seed values used for data partitioning and gradient-boosted classifier initialization across all 4 runs, and expand the evaluation to at least 5 seeds to support bootstrap confidence intervals and significance tests on the primary hit-rate comparisons.}
+
+We compare SERVE against two baselines. The fixed similarity threshold rule matches the gating mechanism deployed in GPTCache and MeanCache: a query is served if $\mathrm{sim}(q, c_{(1)})$ exceeds a threshold $\tau$. We tune $\tau$ independently for each false-serve budget $\beta$, selecting the threshold that maximizes hit rate at the matched budget. This gives the baseline full access to the budget-specific optimum, against which any learned gate must demonstrate a margin. The second baseline is a fair reimplementation of vCache's per-embedding calibrated-threshold mechanism, which derives an adaptive threshold from local cache statistics rather than using a single global cutoff.
+
+Evaluation follows a matched-budget protocol. For each method we select the operating point that respects the false-serve budget $\beta$ and report hit rate at that point. The primary budgets are $\beta \in \{0.5\%, 1\%, 2\%, 5\%\}$.
+% E2
+Aggregate ROC-AUC provides a complementary, threshold-independent summary that captures separation quality across all operating points. Gate overhead is measured on an Apple M-series CPU.
+% E5
+
+All similarities are cosine distances between L2-normalized vectors. The four features consumed by SERVE are byproducts of the top-$k$ nearest-neighbor search that the cache already performs; the gate adds no embedding calls or index lookups to the retrieval pipeline.
+
+All hyperparameters and thresholds, including the 1\% false-serve budget threshold that defines the primary operating point, were selected using only the 20k-entry gate-training split.
+% E12
+The 20k-entry held-out test split was accessed once for the final results reported in Section~5.
+
+The high-recurrence regime parameter $r$ is constructed by subsampling the test population to control the fraction of queries that have a genuine duplicate in the cache; it simulates synthetic query-population skew, not measured production traffic.
+% E6
+The construction amplifies near-duplicate boundary collisions, which isolates the mechanism, but the quantified gains are conditioned on this controlled setup and may not transfer directly to workloads under organic cache-eviction dynamics and corpus drift without further validation.

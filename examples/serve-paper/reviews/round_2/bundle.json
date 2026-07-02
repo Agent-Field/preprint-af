@@ -1,0 +1,165 @@
+{
+  "round": 2,
+  "persona_reviews": [
+    {
+      "persona": "You are an exact-subfield domain expert reviewing a manuscript for a serious venue in your own specialty. You have published the closest related work and you know the state of the art cold. Judge the science, not the wording: is the central result genuinely novel relative to what already exists, or is it a known result in new clothing? Is the technical depth real, or does the paper stop at the surface where the hard problem begins? Does the main claim actually matter to the field, or is it a marginal delta on a solved problem? You are unimpressed by breadth and moved only by a specific, meaningful advance. Flag places where the contribution is overstated relative to prior art, where a key technical step is asserted rather than established, and where the result, even if true, would not change how anyone in the subfield works.",
+      "issues": [],
+      "acceptance_risk": 0.0,
+      "verdict": "",
+      "confident": true
+    },
+    {
+      "persona": "You are a skeptical methods and statistics reviewer whose job is to find the ways this paper's evidence fails to support its conclusions. Hunt for overclaiming: conclusions stated with more certainty than the data allows, causal language on correlational evidence, and generalization beyond the tested regime. Check the baselines: are they the strong, current ones a critic would demand, or weak strawmen? Check for missing ablations that would isolate which component actually drives the reported gain. Check for missing error bars, confidence intervals, seeds, and variance reporting: is a difference claimed without any evidence it is not noise? Check whether the evaluation protocol (splits, metrics, tuning) could leak or flatter the proposed method. Every quantitative claim that lacks the statistical support a careful reviewer would require is an issue.",
+      "issues": [
+        {
+          "section": "front_matter",
+          "issue": "Abstract states latency was ‘measured under a single inference run’, contradicting the analysis section which reports mean and standard deviation over 100,000 invocations. This misrepresents the measurement methodology.",
+          "fix_hint": "Correct the abstract to state the number of runs and standard deviation (e.g., 0.81 µs mean, 0.03 µs std over 100,000 invocations) instead of the misleading ‘single inference run’.",
+          "severity": "minor"
+        },
+        {
+          "section": "results",
+          "issue": "Abstract and results section report hit rates (e.g., 0.0378) and relative improvements (e.g., 11.9%) without any error bars, confidence intervals, or indication of variance. The single evaluation on one split provides no evidence that the differences are not due to noise.",
+          "fix_hint": "Report 95% binomial confidence intervals for all hit rates, or perform multiple train/test splits and report mean and standard deviation across runs.",
+          "severity": "major"
+        },
+        {
+          "section": "global",
+          "issue": "No random seed or repetition is reported for the gradient-boosted gate or the train/test split. The reported hit rate could vary substantially with different seeds, and the current single-run result is not reproducible or robust.",
+          "fix_hint": "Report the random seed(s) used for data splitting and model training, and rerun the evaluation with multiple seeds to quantify variance in hit rate.",
+          "severity": "major"
+        },
+        {
+          "section": "conclusion",
+          "issue": "Conclusion states ‘zero standard deviation across runs’ for latency, but the analysis section reports a standard deviation of 0.03 µs. This inconsistency overstates precision.",
+          "fix_hint": "Update the conclusion to reflect the actual measured standard deviation (e.g., 0.03 µs) instead of ‘zero standard deviation’.",
+          "severity": "minor"
+        },
+        {
+          "section": "analysis",
+          "issue": "Analysis section claims the margin alone recovers 83% of the total gain, but does not report the absolute hit rates for the margin-only model or full model. Without numerical detail, the claim is unverifiable.",
+          "fix_hint": "Provide the actual hit rates or a table for the ablation study, not just a percentage of the gain, to allow assessment of the margin's contribution.",
+          "severity": "minor"
+        },
+        {
+          "section": "front_matter",
+          "issue": "The paper highlights a relative improvement of 11.9% over baseline, but the absolute hit rate is only 0.0378 (3.78% of queries served). The practical impact of such a low absolute hit rate is not discussed, potentially overstating the improvement's importance.",
+          "fix_hint": "Discuss the practical significance of the absolute hit rate (0.0378) and clarify that the relative improvement is small in absolute terms; or shift emphasis to the high-recurrence regime where absolute hit rates are higher.",
+          "severity": "minor"
+        }
+      ],
+      "acceptance_risk": 0.9,
+      "verdict": "The paper proposes an interesting margin-based gating mechanism but lacks the necessary statistical rigor. The main quantitative claims are unsupported by error bars or confidence intervals, and the evaluation relies on a single train/test split and a single training run without reporting seeds. The abstract contains a factual error about latency measurement. These methodological weaknesses prevent the reader from assessing whether the reported improvements are genuine or due to noise, making the paper unsuitable for acceptance in its current form.",
+      "confident": true
+    },
+    {
+      "persona": "You are an editor at a high-impact venue deciding, on the first page alone, whether this paper earns a reader's continued attention. Judge engagement and framing. Does the title pull, or is it generic keyword soup that could sit on a hundred papers? Does the abstract deliver a complete arc (problem, gap, approach, main quantitative result, implication) or does it trail off into vague promises? Do the opening paragraphs make the stakes concrete and specific in the first few sentences, or do they warm up slowly with background nobody needs? A reader decides fast; anything that makes the first page forgettable, hedged, or slow is a problem. Flag weak titles, abstracts that hide the result, and openings that bury the lede or fail to make the reader care.",
+      "issues": [
+        {
+          "section": "introduction",
+          "issue": "Opening paragraph contains an unresolved \\todobox placeholder for a key statistic, indicating the manuscript is incomplete and not ready for review.",
+          "fix_hint": "Replace the placeholder with the actual estimated percentage of inference cost inflation, or remove the sentence if unsupported, and ensure no other placeholders remain.",
+          "severity": "major"
+        },
+        {
+          "section": "introduction",
+          "issue": "The opening paragraphs do not establish the paper's core idea (margin) or concrete stakes early; the reader does not understand why the work matters until later.",
+          "fix_hint": "Front-load the margin concept and its importance in the first paragraph to make the unique contribution clear immediately.",
+          "severity": "minor"
+        },
+        {
+          "section": "front_matter",
+          "issue": "Title is descriptive but lacks a compelling hook; it states the finding but does not convey why it matters or its impact.",
+          "fix_hint": "Consider a title that emphasizes the practical impact, such as including the performance gain or the novel signal.",
+          "severity": "minor"
+        }
+      ],
+      "acceptance_risk": 0.9,
+      "verdict": "The manuscript is not publication-ready due to an incomplete placeholder in the opening paragraph. The framing is otherwise adequate but the opening lacks immediate impact. Fixing the placeholder and sharpening the lede could make it suitable for review.",
+      "confident": true
+    },
+    {
+      "persona": "You are a careful, literal reader tracking the paper's internal mechanics as you go. Track every symbol and piece of notation: is each equation, variable, and term defined before it is used, or does the paper reference notation the reader has not met yet? Track figures and tables: is each one placed near, and no earlier than, its first textual reference, and is every figure actually referenced in the prose? Track section-to-section comprehension: can you follow the argument from one section into the next without a gap, a forward reference to something not yet established, or an unexplained leap? You are the reader who gets stuck on the concrete confusion everyone else glosses over. Flag undefined-before-use notation, misplaced or unreferenced figures, and any point where the reading breaks down.",
+      "issues": [
+        {
+          "section": "global",
+          "issue": "The manuscript is incomplete: the files for sections 02_related_work through 07_conclusion are not included. Only the introduction (01_intro.tex) is shown.",
+          "fix_hint": "Provide the missing sections (02_related_work, 03_method, 04_experimental_setup, 05_results, 06_analysis, 07_conclusion). The paper cannot be reviewed without them.",
+          "severity": "major"
+        },
+        {
+          "section": "front_matter",
+          "issue": "The introduction contains a TODO placeholder: '\\todobox{estimate of inference cost inflation percentage}'. This indicates an unfinished draft.",
+          "fix_hint": "Replace the TODO placeholder with the actual value or remove the sentence.",
+          "severity": "major"
+        },
+        {
+          "section": "front_matter",
+          "issue": "The acronym 'SERVE' is used in the introduction ('SERVE's relative gain') without having been defined anywhere in the paper. The abstract does not mention SERVE.",
+          "fix_hint": "Introduce SERVE explicitly before using the acronym, e.g., in the abstract or early in the introduction.",
+          "severity": "major"
+        },
+        {
+          "section": "front_matter",
+          "issue": "The introduction contains a fractured sentence: '... how uniquely a cached entry stands out from its competitors,.. traffic, is the regime most plausibly associated with FAQ and customer-support caches.' The text is garbled.",
+          "fix_hint": "Complete the sentence (e.g., 'stands out from its competitors, and high-recurrence traffic is the regime...') and ensure the text flows logically from earlier paragraphs.",
+          "severity": "major"
+        },
+        {
+          "section": "front_matter",
+          "issue": "Figures fig4_best_regime_grid and fig4_grid are placed in the introduction (section 01_intro) and described as analysis results. This breaks the paper's logical flow; the introduction should set up the problem, not display outcome grids.",
+          "fix_hint": "Move these figures to the analysis section (06_analysis) and reference them there. The introduction should not present detailed results figures.",
+          "severity": "major"
+        }
+      ],
+      "acceptance_risk": 1.0,
+      "verdict": "The manuscript is not in a reviewable state. It is missing the majority of its sections, the introduction is incoherent (fragmented sentence, undisclosed placeholder), uses an undefined acronym, and places analysis figures before the method and results are introduced. As a result, the paper cannot be followed and would be rejected outright.",
+      "confident": true
+    }
+  ],
+  "narrative": {
+    "transition_issues": [
+      {
+        "section": "01_intro",
+        "issue": "Introduction ends with a list of contributions; the Background section begins with a general statement about semantic caching without a direct connective link, slightly breaking the narrative flow.",
+        "fix_hint": "Add a sentence at the end of the introduction, such as 'We begin by reviewing related work and the limitations of current caching approaches.'",
+        "severity": "minor"
+      }
+    ],
+    "promise_alignment_issues": [
+      "Abstract promises evaluation on QQP only, but the paper also evaluates on PAWS, broadening the empirical scope beyond the stated scope (over-delivery)."
+    ],
+    "arc_assessment": "The paper follows a clear and logical arc: it identifies a gap (similarity is unreliable), proposes a decision-theoretic margin as a solution, designs a gate, and demonstrates through controlled experiments and ablation that the margin signal dominates. The results build confidence incrementally, culminating in the ablation that directly attributes 83% of the gain to the margin. The discussion situates the findings in practical deployment contexts, reinforcing the main claim. The narrative is coherent and well-structured.",
+    "score": 0.9,
+    "confident": true
+  },
+  "fidelity": {
+    "unsupported_claims": [
+      "Gate training completes in under 4ms on a single CPU core (not in EVIDENCE.md)",
+      "Claim about raw cache containing 500k entries is not supported by EVIDENCE.md"
+    ],
+    "number_mismatches": [],
+    "citation_issues": [],
+    "blocking": true,
+    "score": 0.95,
+    "confident": true
+  },
+  "slop": {
+    "violations": [
+      {
+        "file": "main.tex",
+        "line": 24,
+        "rule": "em_dash",
+        "excerpt": "Semantic caches reduce large language model serving costs by reusing responses to similar past queries, but their practi"
+      },
+      {
+        "file": "sections/01_intro.tex",
+        "line": 28,
+        "rule": "bullet_misuse",
+        "excerpt": "\\begin{itemize}"
+      }
+    ],
+    "score": 0.96
+  },
+  "confident": true
+}
