@@ -1,6 +1,27 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
+*.egg-info/
+uv.lock
+
+# Environment
 .env
+
+# Run workspaces
 .tmp/
+
+# macOS
 .DS_Store
+
+# LaTeX intermediates only.
+# The bundled example's compiled main.pdf and rendered figures ARE committed
+# so the paper is viewable without running the pipeline.
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz

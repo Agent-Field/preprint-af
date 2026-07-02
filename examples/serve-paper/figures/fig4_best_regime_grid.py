@@ -20,6 +20,7 @@ Source of truth: EVIDENCE.md, section
   tab:grid.
 """
 
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
@@ -92,7 +93,7 @@ def build_figure():
 
 
 if __name__ == "__main__":
-    out_dir = "/Users/santoshkumar/Documents/agentfield/papers/serve/latex/figures"
+    out_dir = os.path.dirname(os.path.abspath(__file__))
 
     apply_style()
     fig_pdf = build_figure()
