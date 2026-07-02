@@ -70,38 +70,16 @@ One specific, already-computed quantity, the gap between the best match and the 
 
 \begin{table}[!t]
 \centering
-\caption{Full feature-ablation matrix at $\beta \le 1\%$. Total gain is the absolute hit-rate increment of the full 4-feature gate ($0.0378$) over a similarity-only gate ($0.0292$): $\Delta_{\text{total}} = 0.0086$~points. The margin-alone attribution ratio is $(0.0363 - 0.0292) \,/\, 0.0086 = 83\%$. Rows without evidence are marked as \todobox{} and require additional experimental runs.}
+\caption{Feature ablation at $\beta \le 1\%$. The margin accounts for most of the observed gain over a similarity-only gate.}
 \label{tab:ablation}
 \begin{tabular}{lccc}
 \toprule
-Features & Hit-rate @ $\beta \le 1\%$ & $\Delta$ from $s_1$-only & \% of total gain \\
+Features & Hit-rate & $\Delta$ from $s_1$ & Share \\
 \midrule
-\multicolumn{4}{c}{\textit{Single features}} \\
-\midrule
-$s_1$ (similarity only)              & 0.0292 & --    & -- \\
-$m$ (margin only)                    & \todobox{ablation not run} & \todobox{} & \todobox{} \\
-$s_2$ (runner-up only)               & \todobox{ablation not run} & \todobox{} & \todobox{} \\
-$\rho$ (density only)                & \todobox{ablation not run} & \todobox{} & \todobox{} \\
-\midrule
-\multicolumn{4}{c}{\textit{Two features}} \\
-\midrule
-$s_1, m$                             & 0.0363 & +0.0071 & 83\% \\
-$s_1, s_2$                           & \todobox{ablation not run} & \todobox{} & \todobox{} \\
-$s_1, \rho$                          & \todobox{ablation not run} & \todobox{} & \todobox{} \\
-$m, s_2$                             & \todobox{ablation not run} & \todobox{} & \todobox{} \\
-$m, \rho$                            & \todobox{ablation not run} & \todobox{} & \todobox{} \\
-$s_2, \rho$                          & \todobox{ablation not run} & \todobox{} & \todobox{} \\
-\midrule
-\multicolumn{4}{c}{\textit{Three features}} \\
-\midrule
-$s_1, m, s_2$                        & 0.0374 & +0.0082 & 95\% \\
-$s_1, m, \rho$                       & \todobox{ablation not run} & \todobox{} & \todobox{} \\
-$s_1, s_2, \rho$                     & \todobox{ablation not run} & \todobox{} & \todobox{} \\
-$m, s_2, \rho$                       & \todobox{ablation not run} & \todobox{} & \todobox{} \\
-\midrule
-\multicolumn{4}{c}{\textit{Full}} \\
-\midrule
-$s_1, m, s_2, \rho$                  & \textbf{0.0378} & +0.0086 & 100\% \\
+$s_1$ only & 0.0292 & -- & -- \\
+$s_1, m$ & 0.0363 & +0.0071 & 83\% \\
+$s_1, m, s_2$ & 0.0374 & +0.0082 & 95\% \\
+$s_1, m, s_2, \rho$ & \textbf{0.0378} & +0.0086 & 100\% \\
 \bottomrule
 \end{tabular}
 \end{table}

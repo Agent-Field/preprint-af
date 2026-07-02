@@ -29,10 +29,18 @@ Point it at a folder (data, result tables, notebooks, a rough draft, an existing
 <img src="assets/hero.png" alt="preprint-af: you do the research, it writes the paper from your data and results" width="100%" />
 </p>
 
-Real output, not a mockup: the bundled example ([`examples/serve-paper`](examples/serve-paper)) compiled by `preprint-af` into [`main.pdf`](examples/serve-paper/main.pdf). Page one and a figure page from the seven-phase run.
+Real output, not a mockup: the bundled example ([`examples/serve-paper`](examples/serve-paper)) compiled by `preprint-af` into [`main.pdf`](examples/serve-paper/main.pdf). The screenshots below are rendered from the checked-in PDF: pages 1 and 2, plus page 7 where the generated figures and ablation table appear.
 
 <p align="center">
-<img src="assets/example-paper.png" alt="Real output from preprint-af: the title page and a figures page of the compiled example paper" width="100%" />
+  <a href="examples/serve-paper/main.pdf">
+    <img src="assets/paper-preview/page-1.png" alt="Generated SERVE paper page 1" width="31%" />
+  </a>
+  <a href="examples/serve-paper/main.pdf">
+    <img src="assets/paper-preview/page-2.png" alt="Generated SERVE paper page 2" width="31%" />
+  </a>
+  <a href="examples/serve-paper/main.pdf">
+    <img src="assets/paper-preview/page-7.png" alt="Generated SERVE paper page 7 with figure and ablation table" width="31%" />
+  </a>
 </p>
 
 ---

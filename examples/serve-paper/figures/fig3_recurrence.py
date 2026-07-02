@@ -40,12 +40,12 @@ MARKERS = {
 # Apply style
 # -------------------------------------------------------------------------
 plt.rcParams.update({
-    "font.size": 8,
-    "axes.titlesize": 9,
-    "axes.labelsize": 8,
-    "xtick.labelsize": 7,
-    "ytick.labelsize": 7,
-    "legend.fontsize": 7,
+    "font.size": 7,
+    "axes.titlesize": 7,
+    "axes.labelsize": 7,
+    "xtick.labelsize": 6.5,
+    "ytick.labelsize": 6.5,
+    "legend.fontsize": 6.5,
     "font.family": "serif",
     "axes.linewidth": 0.6,
     "xtick.major.width": 0.6,
@@ -101,46 +101,44 @@ INK = "#1a1a1a"
 
 
 def build_figure():
-    fig, ax = plt.subplots(figsize=(COLUMN_WIDTH_IN, 2.6))
+    fig, ax = plt.subplots(figsize=(COLUMN_WIDTH_IN, 2.25))
 
-    # Mean lines with markers.
+    ax.fill_between(R, FIXED_MEAN, SERVE_MEAN, color=COLORS["serve"], alpha=0.10,
+                    linewidth=0, zorder=1)
     ax.plot(R, FIXED_MEAN, color=COLORS["fixed"], marker=MARKERS["fixed"],
-            markersize=4.5, linewidth=1.9, markeredgecolor="white",
-            markeredgewidth=0.7, label="Fixed threshold", zorder=3)
+            markersize=3.5, linewidth=1.5, markeredgecolor="white",
+            markeredgewidth=0.5, label="Fixed", zorder=3)
     ax.plot(R, SERVE_MEAN, color=COLORS["serve"], marker=MARKERS["serve"],
-            markersize=5.0, linewidth=1.9, markeredgecolor="white",
+            markersize=3.8, linewidth=1.5, markeredgecolor="white",
             markeredgewidth=0.7, label="SERVE", zorder=3)
 
-    # Direct labels on the two right endpoints.
     xr = R[-1]
     ax.annotate(f"{SERVE_MEAN[-1]:.4f}", xy=(xr, SERVE_MEAN[-1]),
-                xytext=(6, 2), textcoords="offset points",
-                ha="left", va="center", fontsize=7.5, color=INK)
+                xytext=(-18, 8), textcoords="offset points",
+                ha="right", va="center", fontsize=6.5, color=INK)
     ax.annotate(f"{FIXED_MEAN[-1]:.4f}", xy=(xr, FIXED_MEAN[-1]),
-                xytext=(6, -1), textcoords="offset points",
-                ha="left", va="center", fontsize=7.5, color=INK)
+                xytext=(-30, 2), textcoords="offset points",
+                ha="right", va="center", fontsize=6.5, color=INK)
 
-    # Final relative gap label in the wedge between the two lines.
     final_rel = (SERVE_MEAN[-1] - FIXED_MEAN[-1]) / FIXED_MEAN[-1] * 100.0  # E6
     gap_y = (SERVE_MEAN[-1] + FIXED_MEAN[-1]) / 2.0
     ax.annotate(f"+{final_rel:.0f}%", xy=(xr, gap_y),
-                xytext=(-4, 0), textcoords="offset points",
-                ha="right", va="center", fontsize=8.5, color=INK, weight="bold")
+                xytext=(-18, 0), textcoords="offset points",
+                ha="right", va="center", fontsize=7.5, color=INK, weight="bold")
     ax.annotate("", xy=(xr, SERVE_MEAN[-1]), xytext=(xr, FIXED_MEAN[-1]),
                 arrowprops=dict(arrowstyle="<->", color=INK, lw=0.7,
                                 shrinkA=1.5, shrinkB=1.5), zorder=2)
 
     ax.set_xlabel(r"Query recurrence rate $r$")
     ax.set_ylabel(r"Hit rate at $\beta \leq 1\%$")
-    ax.set_title("Absolute gain diverges with recurrence")
 
-    ax.set_xlim(0.15, 0.99)
+    ax.set_xlim(0.18, 0.94)
     ax.set_xticks([0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
-    ax.set_ylim(0, 0.16)
+    ax.set_ylim(0.015, 0.155)
     ax.set_yticks([0.00, 0.04, 0.08, 0.12, 0.16])
 
-    ax.legend(loc="upper left", handlelength=1.6, handletextpad=0.5,
-              borderaxespad=0.4)
+    ax.legend(loc="upper left", handlelength=1.4, handletextpad=0.4,
+              borderaxespad=0.2, labelspacing=0.25)
 
     for side in ("top", "right"):
         ax.spines[side].set_visible(False)
