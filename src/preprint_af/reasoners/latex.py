@@ -15,7 +15,10 @@ def _repair_prompt(excerpt: str) -> str:
 LaTeX compilation failed. Fix ONLY LaTeX/compilation errors: undefined control sequences, missing
 packages (prefer removing the dependency), math-mode errors, unescaped %, &, #, _ in text, missing
 \\includegraphics files (replace with \\todobox{{Figure <name> pending}} if the pdf is genuinely
-absent), bib issues. Do NOT change scientific content, numbers, citations, prose wording, or
+absent — note: this command renders as inline red text, so if the missing figure was inside a
+\\begin{{figure}}...\\end{{figure}} environment, replace the ENTIRE figure environment with a single
+\\todobox{{Figure <name> pending}} line in the prose flow; an empty float around red text looks
+broken), bib issues. Do NOT change scientific content, numbers, citations, prose wording, or
 section structure. Error log: {excerpt}"""
 
 

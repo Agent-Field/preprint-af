@@ -20,12 +20,28 @@ async def prepare_workspace(folder_path: str, model: str | None = None) -> Works
     return workspace
 
 
-def _evidence_prompt(workspace: dict) -> str:
+def _evidence_prompt(workspace: dict, mode: str = "position") -> str:
     input_files = workspace.get("input_files") or []
     listing = "\n".join(f"  - input/{p}" for p in input_files) or "  (input listing unavailable — walk input/ yourself)"
     py = helpers.figure_python()
     evidence_path = workspace.get("evidence_path", "EVIDENCE.md")
     has_draft = workspace.get("has_existing_draft", False)
+    if mode == "position":
+        gaps_block = (
+            "Bullet list of SCOPE NOTES: where the evidence is bounded, so the paper's "
+            "claims can be scoped down to what it already supports. Phrase every item as a "
+            "limitation / scope-down candidate, NOT as an experiment TODO, e.g. \"evidence "
+            "covers accuracy on dataset X but not on Y; claims must be scoped to X\". These "
+            "are recorded in EVIDENCE.md ONLY (they are NOT tracked as action items); they "
+            "tell the writer where to bound the story, not what new experiment to run."
+        )
+    else:
+        gaps_block = (
+            "Bullet list of experiments or data that are MISSING for stronger or additional "
+            "claims. Phrase every item as an actionable TODO (start with a verb), e.g. \"Run "
+            "the ablation without component X to isolate its contribution.\" These become "
+            "tracked TODO items."
+        )
     return f"""\
 You are building the FACT LEDGER for a scientific paper. The workspace root is your working
 directory. All of the user's raw material lives under `input/`. Your single deliverable is a
@@ -67,9 +83,7 @@ line per method"), and the exact input/ source file(s) that back it. Only list f
 data can produce.
 
 ### `## Gaps`
-Bullet list of experiments or data that are MISSING for stronger or additional claims. Phrase
-every item as an actionable TODO (start with a verb), e.g. "Run the ablation without component X
-to isolate its contribution." These become tracked TODO items.
+{gaps_block}
 
 ### `## Existing draft`
 {"An existing draft/paper is present in input/. Assess it: what it claims, which claims are"
@@ -86,7 +100,8 @@ If none exist, write 'No citations found in input/.'
 Return an `EvidenceSummary` with these fields:
 - `fact_count`: the number of `### E<n>` entries you wrote.
 - `figure_candidates`: the list of figure-candidate descriptions.
-- `gaps`: the list of TODO-phrased gap items (same text as the `## Gaps` bullets).
+- `gaps`: the list of gap items (same text as the `## Gaps` bullets: scope notes in position
+  mode, TODO-phrased missing experiments in propose mode).
 - `existing_citations`: the identifiers from your `## Citation inventory`.
 - `draft_assessment`: a 1–3 sentence assessment of the existing draft (or note that none exists).
 - `strongest_factual_thesis`: the single most defensible, evidence-backed thesis this material
@@ -97,15 +112,17 @@ Obey AGENTS.md in this workspace. Do the work now: explore, compute, then write 
 
 
 @router.reasoner()
-async def build_evidence_ledger(workspace: dict, model: str | None = None) -> EvidenceSummary:
+async def build_evidence_ledger(
+    workspace: dict, mode: str = "position", model: str | None = None
+) -> EvidenceSummary:
     """P0b: one OpenCode harness pass that reads input/ and writes EVIDENCE.md."""
     root = workspace["root"]
     evidence_path = workspace["evidence_path"]
     todo_path = workspace["todo_path"]
 
-    print(f"[intake] building evidence ledger at {evidence_path}")
+    print(f"[intake] building evidence ledger at {evidence_path} (mode={mode!r})")
     result = await router.harness(
-        _evidence_prompt(workspace),
+        _evidence_prompt(workspace, mode),
         provider="opencode",
         model=helpers.opencode_model(model),
         cwd=root,
@@ -124,7 +141,9 @@ async def build_evidence_ledger(workspace: dict, model: str | None = None) -> Ev
         )
 
     summary: EvidenceSummary = result.parsed
-    if summary.gaps:
+    # In position mode, gaps are scope notes recorded in EVIDENCE.md only; they are NOT
+    # appended to TODO.md as action items. In propose mode, gaps are experiment TODOs.
+    if summary.gaps and mode != "position":
         helpers.append_todos(todo_path, summary.gaps)
     print(f"[intake] evidence ledger done facts={summary.fact_count} "
           f"figure_candidates={len(summary.figure_candidates)} gaps={len(summary.gaps)}")

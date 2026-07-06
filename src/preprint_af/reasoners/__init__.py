@@ -4,6 +4,7 @@ from .critique import router as critique_router
 from .intake import router as intake_router
 from .latex import router as latex_router
 from .positioning import router as positioning_router
+from .prose import router as prose_router
 from .repair import router as repair_router
 from .workflow import router as workflow_router
 
@@ -14,6 +15,7 @@ __all__ = [
     "build_router",
     "latex_router",
     "critique_router",
+    "prose_router",
     "repair_router",
     "workflow_router",
 ]

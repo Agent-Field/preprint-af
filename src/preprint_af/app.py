@@ -13,6 +13,7 @@ from preprint_af.reasoners import (
     intake_router,
     latex_router,
     positioning_router,
+    prose_router,
     repair_router,
     workflow_router,
 )
@@ -48,6 +49,7 @@ def build_app() -> Agent:
         build_router,
         latex_router,
         critique_router,
+        prose_router,
         repair_router,
         workflow_router,
     ):

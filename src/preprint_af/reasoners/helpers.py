@@ -355,7 +355,8 @@ these rules exactly. They are read automatically for every task.
   NEVER append `%` to a line that has more text after it: in LaTeX, everything after `%`
   on that line silently disappears from the compiled paper.
 - Never invent results, datasets, metrics, citations, or figures.
-- Missing material becomes `\\todobox{what is needed and why}`; do not fabricate to fill a gap.
+- Missing material becomes `\\todobox{what is needed and why}`; `\\todobox` renders as
+  inline red text that flows with the prose — do not fabricate to fill a gap.
 - Cite only keys present in `paper/refs.bib`. A needed but unknown citation becomes a `\\todobox`.
 
 ## 3. Prose rules (hard bans)
@@ -369,33 +370,81 @@ these rules exactly. They are read automatically for every task.
 - No "not only ... but also" constructions.
 - No rhetorical questions. No exclamation marks.
 
-## 4. Prose rules (positive)
+## 4. Prose doctrine (how to write, not just what to avoid)
 
-- Open each paragraph with a claim, a contrast, a mechanism, or a result.
-- Vary sentence length deliberately: mix short declaratives with dense technical sentences.
-- Prefer concrete verbs and domain nouns over evaluative adjectives.
-- Hedge only with calibrated uncertainty tied to the evidence.
-- Write transitions that carry scientific content, not signposts.
+- Mechanism before formalism. Say the idea in plain words first; the equation then
+  arrives as the inevitable formalization of what was just said. Every displayed
+  equation is part of a sentence, punctuated, introduced by need ("To capture X, we
+  define ...") and followed by one sentence interpreting the term that matters.
+  Never place two displayed equations without prose between them.
+- The skim test. Reading only the first sentence of every paragraph must yield a
+  coherent summary of the paper. Topic sentences carry claims, not setup.
+- Old before new. Open each sentence with what the reader already knows and end with
+  the new item. The end of a sentence is its stress position: put the payload there.
+- Understatement backed by enormity. Let the result carry the weight and strip the
+  adjectives. "This halves the cost of X" needs no "remarkably".
+- Numbers with anchors. A number never appears without its comparison ("3.2x faster
+  than the strongest baseline"). Headline numbers appear at most three times in the
+  paper: abstract, results, conclusion.
+- Write at the strength the evidence supports, then state it plainly. Calibrated
+  confidence means scoping the claim, not hedging the sentence. "Our analysis assumes
+  X" in Methods beats "unfortunately this does not work for X" in Results.
+- Vary sentence length deliberately: mix short declaratives with dense technical
+  sentences. Vary paragraph length too; uniform rhythm reads as machine-written.
+- Transitions carry scientific content, never signposts. Never write "In this
+  section, we ...".
 
-## 5. Structure rules
+## 5. Salience and placement (what goes where)
+
+Every fact has a salience class; place it only where its class allows:
+
+| Class | Examples | Allowed placement |
+|---|---|---|
+| headline | the central result | abstract, intro, results, captions, conclusion |
+| supporting | per-benchmark numbers, ablations | results, near their figure |
+| provenance | seeds, N, hardware, hyperparameters | Methods (once) or SI; never in the narrative |
+| limitation | scope boundaries, failure regimes | the Limitations paragraph (once), or one clause in Methods |
+
+- State each limitation exactly once, in the Limitations paragraph or Methods. Never
+  interrupt the narrative to disclaim. Routine rigor (seeds, error bars, hardware) is
+  stated once in Methods; repeating it elsewhere signals insecurity, not honesty.
+- Banned defensive constructions: "unfortunately", "we were unable", "failed to"
+  (about your own method, outside Limitations), "it should be noted", "we
+  acknowledge that", "we note that our method does not".
+
+### Before/after examples
+
+Pedantic (wrong):
+  "We note that our method does not extend to X, and we only validated with 4 seeds."
+Correct:
+  Results state the claim plainly. Methods says "all results are means over 4 seeds."
+  Limitations says "our analysis assumes X; extending beyond it is future work."
+
+Defensive (wrong):
+  "Although our approach unfortunately fails in the high-noise regime, it achieves ..."
+Correct:
+  "Our approach achieves ... in the moderate-noise regimes that dominate practice."
+  (High-noise behavior goes to Limitations, once.)
+
+## 6. Structure rules
 
 - No `\\subsubsection`.
 - Use subsections only for real method or experiment families.
 - Use bullets only for genuine enumerations (contributions, assumptions, datasets).
 - Never end a section with a summary of itself.
 
-## 6. Front matter rules
+## 7. Front matter rules
 
 - Title: at most 14 words, at most one colon, no question mark, no keyword stuffing.
 - Abstract: one paragraph with the arc problem -> gap -> approach -> main quantitative
   result -> implication. No bullet-like sentence lists.
 
-## 7. LaTeX rules
+## 8. LaTeX rules
 
 - Sections live in `paper/sections/NN_slug.tex` and contain no `\\documentclass`.
 - Reference figures as `figures/<slug>.pdf` with `\\label{fig:<slug>}`.
 - Captions state the takeaway, not what the axes are.
-- The `\\todobox{...}` environment is defined in main.tex; do not redefine it.
+- The `\\todobox{...}` command is defined in main.tex; do not redefine it.
 - Keep the package set minimal.
 """
 
@@ -426,12 +475,10 @@ def main_tex_skeleton(title: str, abstract: str, section_files: list[str]) -> st
 \\graphicspath{{{{figures/}}}}
 \\usepackage{{booktabs}}
 \\usepackage{{xcolor}}
-\\usepackage{{tcolorbox}}
 \\usepackage[numbers,sort&compress]{{natbib}}
 \\usepackage{{hyperref}}
 
-\\newtcolorbox{{todoboxenv}}{{colback=yellow!8,colframe=orange!70!black,title=TODO,fonttitle=\\bfseries}}
-\\newcommand{{\\todobox}}[1]{{\\begin{{todoboxenv}}#1\\end{{todoboxenv}}}}
+\\newcommand{{\\todobox}}[1]{{\\textcolor{{red}}{{\\textbf{{[TODO:}} #1\\textbf{{]}}}}}}
 
 \\title{{{title_tex}}}
 \\author{{Author Name\\thanks{{Draft generated for author revision.}}}}
@@ -559,6 +606,9 @@ def slop_lint(paper_dir: str) -> SlopReport:
 
         violations.extend(_rhythm_uniform(rel, scannable))
         violations.extend(_paragraph_uniform(rel, scannable))
+        violations.extend(_defensive_phrase(rel, scannable))
+        violations.extend(_signpost_opener(rel, scannable))
+        violations.extend(_uniform_paragraph_rhythm(rel, raw))
 
         if is_main:
             violations.extend(_title_shape(raw, rel))
@@ -567,6 +617,11 @@ def slop_lint(paper_dir: str) -> SlopReport:
         if scope == "paper":
             for rel, line_no, text in paper_occurrences[token][allowance:]:
                 violations.append(_viol(rel, line_no, f"banned_phrase:{token}", text))
+
+    # Cross-file rules that need all section paths together.
+    if sections.is_dir():
+        section_paths = sorted(sections.glob("*.tex"))
+        violations.extend(_repeated_section_opener(paper, section_paths))
 
     score = max(0.0, 1.0 - 0.02 * len(violations))
     return SlopReport(violations=violations, score=score)
@@ -711,6 +766,146 @@ def _paragraph_uniform(rel: str, scannable: list[tuple[int, str]]) -> list[SlopV
                 line=0,
                 rule="paragraph_uniform",
                 excerpt=f"{len(counts)} paragraphs, length cv {cv:.2f}",
+            )
+        ]
+    return []
+
+
+_DEFENSIVE_PHRASES: list[tuple[str, str]] = [
+    ("unfortunately", r"\bunfortunately\b"),
+    ("we were unable", r"\bwe were unable\b"),
+    ("it should be noted", r"\bit should be noted\b"),
+    ("we acknowledge that", r"\bwe acknowledge that\b"),
+    ("we note that our method does not", r"\bwe note that our method does not\b"),
+    ("we caution", r"\bwe caution\b"),
+]
+
+
+def _defensive_phrase(rel: str, scannable: list[tuple[int, str]]) -> list[SlopViolation]:
+    """Flag defensive or apologetic constructions that belong only in Limitations."""
+    out: list[SlopViolation] = []
+    for label, pattern in _DEFENSIVE_PHRASES:
+        rx = re.compile(pattern, re.IGNORECASE)
+        for line_no, text in scannable:
+            if rx.search(text):
+                out.append(_viol(rel, line_no, f"defensive_phrase:{label}", text))
+    return out
+
+
+_SIGNPOST_PATTERNS: list[tuple[str, str]] = [
+    ("in_this_section", r"\bIn this section\b"),
+    ("this_section_describes", r"\bThis section describes\b"),
+    ("this_section_presents", r"\bThis section presents\b"),
+]
+
+
+def _signpost_opener(rel: str, scannable: list[tuple[int, str]]) -> list[SlopViolation]:
+    """Flag self-referential signpost sentences that carry no scientific content."""
+    out: list[SlopViolation] = []
+    for label, pattern in _SIGNPOST_PATTERNS:
+        rx = re.compile(pattern, re.IGNORECASE)
+        for line_no, text in scannable:
+            if rx.search(text):
+                out.append(_viol(rel, line_no, f"signpost_opener:{label}", text))
+    return out
+
+
+def _first_prose_sentence(raw: str) -> str:
+    """Return the first prose sentence after the \\section{...} line, stripped."""
+    lines = raw.splitlines()
+    past_section = False
+    for line in lines:
+        stripped = line.strip()
+        if not past_section:
+            if re.search(r"\\section\*?\{", stripped):
+                past_section = True
+            continue
+        # Skip blank lines, comments, and pure-LaTeX lines.
+        if not stripped:
+            continue
+        if stripped.startswith("%"):
+            continue
+        if re.match(r"\\(?:label|begin|end|vspace|hspace|noindent|centering|small|large)\b", stripped):
+            continue
+        return stripped
+    return ""
+
+
+def _repeated_section_opener(paper: Path, section_paths: list[Path]) -> list[SlopViolation]:
+    """Flag sections that open with the same first 4 words as another section."""
+    openers: list[tuple[str, str, str]] = []  # (rel, first_4_words_lower, first_sentence)
+    for path in section_paths:
+        rel = path.relative_to(paper).as_posix()
+        raw = read_text(path)
+        sentence = _first_prose_sentence(raw)
+        if not sentence:
+            continue
+        words = re.findall(r"[a-zA-Z]+", _delatex(sentence))
+        if len(words) < 4:
+            continue
+        key = " ".join(w.lower() for w in words[:4])
+        openers.append((rel, key, sentence))
+
+    seen: dict[str, list[tuple[str, str]]] = {}
+    for rel, key, sentence in openers:
+        seen.setdefault(key, []).append((rel, sentence))
+
+    out: list[SlopViolation] = []
+    for key, entries in seen.items():
+        if len(entries) >= 2:
+            for rel, sentence in entries:
+                out.append(
+                    SlopViolation(
+                        file=rel,
+                        line=0,
+                        rule="repeated_section_opener",
+                        excerpt=f'first 4 words "{key}" shared with another section: {sentence[:80]}',
+                    )
+                )
+    return out
+
+
+def _uniform_paragraph_rhythm(rel: str, raw: str) -> list[SlopViolation]:
+    """Flag a section file whose paragraph word counts are suspiciously uniform."""
+    # Only run on section files (not main.tex).
+    if not rel.startswith("sections/"):
+        return []
+    lines = raw.splitlines()
+    paragraphs: list[list[str]] = []
+    current: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if current:
+                paragraphs.append(current)
+                current = []
+        else:
+            # Skip pure-LaTeX structural lines.
+            if re.match(r"\\(?:begin|end|section|subsection|label|vspace|hspace|centering)\b", stripped):
+                continue
+            current.append(stripped)
+    if current:
+        paragraphs.append(current)
+
+    counts = [len(_delatex(" ".join(p)).split()) for p in paragraphs]
+    counts = [c for c in counts if c > 0]
+    if len(counts) < 4:
+        return []
+    mean = statistics.mean(counts)
+    if mean == 0:
+        return []
+    try:
+        spread = statistics.stdev(counts)
+    except statistics.StatisticsError:
+        spread = 0.0
+    cv = spread / mean
+    if cv < 0.12:
+        return [
+            SlopViolation(
+                file=rel,
+                line=0,
+                rule="uniform_paragraph_rhythm",
+                excerpt="paragraph lengths are uniform; vary rhythm",
             )
         ]
     return []

@@ -42,9 +42,17 @@ def _compose_review(
     records: list[RoundRecord],
     stop_reason: str,
     todo_digest: str,
+    mode: str = "position",
+    polish_outcome: str = "skipped",
+    polish_detail: str = "",
 ) -> str:
     parts: list[str] = ["# REVIEW — unresolved problems\n"]
+    parts.append(f"Mode: **{mode}**\n")
     parts.append(f"Stop reason: **{stop_reason}**\n")
+    polish_line = f"Voice-unification polish: **{polish_outcome}**"
+    if polish_detail:
+        polish_line += f" ({polish_detail})"
+    parts.append(polish_line + "\n")
 
     persona_majors: list[str] = []
     fidelity_findings: list[str] = []
@@ -87,6 +95,7 @@ async def write_paper(
     dry_run: bool = False,
     quality_threshold: float = 0.90,
     plateau_delta: float = 0.01,
+    mode: str = "position",
     model: str | None = None,
 ) -> dict:
     req = WriteRequest(
@@ -98,9 +107,11 @@ async def write_paper(
         dry_run=dry_run,
         quality_threshold=quality_threshold,
         plateau_delta=plateau_delta,
+        mode=mode,
         model=model,
     )
     node = helpers.node_id()
+    print(f"[workflow] write_paper mode={req.mode!r}")
 
     # ---- P0: workspace + evidence ledger ---------------------------------
     print(f"[P0] preparing workspace from {req.folder_path}")
@@ -116,11 +127,15 @@ async def write_paper(
         **await router.call(
             f"{node}.intake_build_evidence_ledger",
             workspace=ws.model_dump(),
+            mode=req.mode,
             model=req.model,
         )
     )
     print(f"[P0] evidence ledger built: {evidence.fact_count} facts, confident={evidence.confident}")
-    helpers.save_state(ws.root, {"phase": "P0", "fact_count": evidence.fact_count, "confident": evidence.confident})
+    helpers.save_state(
+        ws.root,
+        {"phase": "P0", "mode": req.mode, "fact_count": evidence.fact_count, "confident": evidence.confident},
+    )
     helpers.git_snapshot(ws.root, "P0 evidence")
 
     # ---- P1: positioning (once) ------------------------------------------
@@ -132,6 +147,7 @@ async def write_paper(
             target_venue=req.target_venue,
             field_hint=req.field_hint,
             allow_web=req.allow_web,
+            mode=req.mode,
             model=req.model,
         )
     )
@@ -146,6 +162,7 @@ async def write_paper(
             f"{node}.blueprint_design_blueprint",
             workspace=ws.model_dump(),
             target_venue=req.target_venue,
+            mode=req.mode,
             model=req.model,
         )
     )
@@ -222,13 +239,24 @@ async def write_paper(
         narrative_score = bundle.narrative.score
         fidelity_score = bundle.fidelity.score
         slop_score = bundle.slop.score
-        total = round(
-            0.35 * persona_score
-            + 0.25 * narrative_score
-            + 0.25 * fidelity_score
-            + 0.15 * slop_score,
-            4,
-        )
+        if bundle.skim is not None:
+            # Skim reviewer present: rebalance to make room for the skim-layer score.
+            total = round(
+                0.30 * persona_score
+                + 0.20 * narrative_score
+                + 0.25 * fidelity_score
+                + 0.10 * slop_score
+                + 0.15 * bundle.skim.score,
+                4,
+            )
+        else:
+            total = round(
+                0.35 * persona_score
+                + 0.25 * narrative_score
+                + 0.25 * fidelity_score
+                + 0.15 * slop_score,
+                4,
+            )
         compile_ok = compile_report.success
 
         record = RoundRecord(
@@ -338,14 +366,41 @@ async def write_paper(
             records[-1].stop_reason = stop_reason
         print(f"[loop] STOP {stop_reason}")
 
+    # ---- Voice-unification polish pass (once, after convergence) ---------
+    # Skip when the loop ended in a bad state: a blocking fidelity audit or a broken
+    # compile means the paper is not in shape to hand to a single-voice rewrite.
+    fidelity_blocking = bool(bundle is not None and bundle.fidelity.blocking)
+    if fidelity_blocking or not compile_report.success:
+        polish_outcome = "skipped"
+        polish_detail = "loop ended with fidelity blocking" if fidelity_blocking else "loop ended with compile failure"
+        print(f"[polish] skipped: {polish_detail}")
+    else:
+        print("[polish] running voice-unification pass")
+        polish_report = await router.call(
+            f"{node}.prose_polish_voice",
+            workspace=ws.model_dump(),
+            model=req.model,
+        )
+        polish_outcome = str(polish_report.get("outcome", "skipped"))
+        polish_detail = str(polish_report.get("detail", ""))
+        print(f"[polish] outcome={polish_outcome} detail={polish_detail!r}")
+        # A reverted or applied pass may have moved the workspace; re-read the compile
+        # state from disk is not needed here since the pass reverts to a compiling tree.
+    helpers.save_state(ws.root, {"phase": "polish", "outcome": polish_outcome, "detail": polish_detail})
+
     # ---- REVIEW.md + final result ----------------------------------------
     todo_digest = helpers.read_text(ws.todo_path, limit=6000)
-    review_body = _compose_review(bundle, records, stop_reason, todo_digest)
+    review_body = _compose_review(
+        bundle, records, stop_reason, todo_digest, req.mode, polish_outcome, polish_detail
+    )
     review_path = helpers.write_text(f"{ws.root}/REVIEW.md", review_body)
     helpers.git_snapshot(ws.root, "REVIEW")
 
     final_score = best[0] if best[1] is not None else 0.0
-    print(f"[done] stop_reason={stop_reason} final_score={final_score} rounds={len(records)}")
+    print(
+        f"[done] mode={req.mode} stop_reason={stop_reason} final_score={final_score} "
+        f"rounds={len(records)} polish={polish_outcome}"
+    )
 
     return WriteResult(
         status="completed",

@@ -30,9 +30,12 @@ def _section_prompt(
 
     if prev is None:
         opening_block = (
-            "This is the OPENING section of the paper. Open with the positioning opening thesis "
-            "(the winning frame's `opening_thesis` recorded in POSITIONING.md). Do not assume any "
-            "prior section; establish the paper's stance from the first sentence."
+            "This is the OPENING section. Structure the opening as a funnel: "
+            "(1) a truth the field already accepts, "
+            "(2) the sharpening tension or unmet need, "
+            "(3) the precise gap stated so the reader now wants exactly this paper's answer, "
+            "(4) this paper's answer, using the positioning opening thesis from POSITIONING.md. "
+            "Do not open with generic context; the first sentence must already carry the paper's stance."
         )
     else:
         opening_block = (
@@ -43,13 +46,17 @@ def _section_prompt(
 
     if nxt is not None:
         closing_block = (
-            f"Your closing must set up what the NEXT section requires: \"{nxt.requires}\". End by "
-            "handing that thread forward, without summarizing this section."
+            f"Your closing must set up what the NEXT section requires: \"{nxt.requires}\". "
+            "The last sentence must raise, in scientific content, the question the next section answers. "
+            "Never use 'next, we describe' or any procedural handoff; the thread must be carried "
+            "forward through the substance of the argument, not a signpost."
         )
     else:
         closing_block = (
             "This is the FINAL section. Close the paper's argument; do not set up a further section "
-            "and do not end with a summary of this section."
+            "and do not end with a summary of this section. "
+            "Close with consequence, not summary: one paragraph on what this result makes possible "
+            "and what the field should now test."
         )
 
     if spec.figure_slugs:
@@ -106,6 +113,16 @@ which citation keys actually exist.
   not invent a key — write a `\\todobox{{...}}` note describing the citation that is needed.
 - Write flowing, scholarly prose per AGENTS.md: no em dashes, no banned phrases, varied sentence
   rhythm, claims-first paragraphs, transitions that carry scientific content rather than signposts.
+- Salience placement: provenance details (seeds, N, hardware, hyperparameters) belong ONLY in the
+  Methods section, stated once. Limitations and scope boundaries belong ONLY in the designated
+  Limitations location, stated once. Never interrupt the narrative to disclaim; write at the strength
+  the evidence supports and state it plainly.
+- Equations are narrated: say the idea in words first, then the equation as part of a punctuated
+  sentence, then one sentence interpreting the term that matters. Never place two displayed equations
+  without prose between them.
+- Topic sentences carry claims: the first sentence of each paragraph must state the paragraph's claim
+  or result, not setup. A reader skimming only first sentences must get this section's argument.
+- Never open with "In this section" or any signpost.
 
 ## Return value
 Return a WorkerResult: name = "section:{spec.slug}", status = "done" if you wrote the section,

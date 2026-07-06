@@ -50,8 +50,9 @@ def _compact_critique(critique: dict) -> dict:
     narrative = critique.get("narrative", {}) or {}
     fidelity = critique.get("fidelity", {}) or {}
     slop = critique.get("slop", {}) or {}
+    skim = critique.get("skim") or {}
 
-    return {
+    compact: dict = {
         "personas": personas,
         "narrative": {
             "transition_issues": [
@@ -77,6 +78,23 @@ def _compact_critique(critique: dict) -> dict:
         ],
     }
 
+    # Include skim issues when the skim layer does not sell the paper or scores below 0.7.
+    if skim and (not skim.get("sells", True) or skim.get("score", 1.0) < 0.7):
+        skim_findings = []
+        for issue in skim.get("issues", []) or []:
+            issue_lower = issue.lower()
+            # Route caption/figure issues to front_matter; topic-sentence issues to global;
+            # title/abstract issues to front_matter; attribution unclear -> global.
+            if any(kw in issue_lower for kw in ("caption", "figure", "title", "abstract")):
+                target = "front_matter"
+            else:
+                target = "global"
+            skim_findings.append({"section": target, "issue": issue, "fix_hint": "strengthen skim layer"})
+        if skim_findings:
+            compact["skim"] = skim_findings
+
+    return compact
+
 
 def _fidelity_findings(fidelity: dict) -> list[str]:
     return (
@@ -96,6 +114,8 @@ def _critique_is_dirty(compact: dict) -> bool:
         if any(str(i.get("severity", "")).lower() == "major" for i in pr.get("issues", [])):
             return True
     if compact.get("narrative", {}).get("transition_issues"):
+        return True
+    if compact.get("skim"):
         return True
     return False
 
@@ -130,6 +150,9 @@ def _synthesize_plan(compact: dict, reason: str) -> RepairPlan:
         # "paper/sections/03_method.tex:12 rule — excerpt" -> attach to that section's task
         m = re.search(r"\d+_([a-z0-9_]+)\.tex", line) if "sections/" in line else None
         add(m.group(1) if m else "global", f"Slop violation, apply mechanically: {line}")
+
+    for sf in compact.get("skim", []) or []:
+        add(sf.get("section", "global"), f"Skim layer: {sf.get('issue', '')} Fix: {sf.get('fix_hint', '')}")
 
     ordered = sorted(by_target.items(), key=lambda kv: (kv[0] != "global", kv[0]))
     tasks = [
@@ -179,12 +202,15 @@ async def plan_repairs(
                 "(unsupported claim, number mismatch, citation issue) MUST be covered by a task "
                 "with priority 'high'. Slop violations attach to the task for their section as "
                 "mechanical instructions that quote the file and line, for example "
-                "'line 34: replace the em dash with a comma'. Instructions must be concrete, "
-                "executable edits ('rewrite the opening sentence to state the measured 3.2x "
-                "speedup'), never judgments ('improve the flow'). If the critique contains "
-                "nothing worth fixing (no major issues, no fidelity findings, only trivial "
-                "residue), return an EMPTY tasks list — that signals convergence. Set `confident` "
-                "truthfully."
+                "'line 34: replace the em dash with a comma'. Skim findings (under the 'skim' key) "
+                "are issues with the paper's skim layer (title, abstract, captions, topic "
+                "sentences); route them to 'front_matter' for title/abstract/caption issues or to "
+                "the relevant section for topic-sentence issues; if attribution is unclear use "
+                "'global'. Instructions must be concrete, executable edits ('rewrite the opening "
+                "sentence to state the measured 3.2x speedup'), never judgments ('improve the "
+                "flow'). If the critique contains nothing worth fixing (no major issues, no "
+                "fidelity findings, only trivial residue), return an EMPTY tasks list — that "
+                "signals convergence. Set `confident` truthfully."
             ),
             user=(
                 "Critique digest (compacted CritiqueBundle):\n"

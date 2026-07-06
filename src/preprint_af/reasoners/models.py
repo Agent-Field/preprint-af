@@ -13,6 +13,9 @@ class WriteRequest(BaseModel):
     quality_threshold: float = Field(default=0.90, ge=0.0, le=1.0)
     plateau_delta: float = Field(default=0.01, ge=0.0, le=0.1)
     model: str | None = None
+    # "position" = tell the strongest story with existing evidence only (default);
+    # "propose" = may surface missing experiments as TODOs
+    mode: str = "position"
 
 
 class Workspace(BaseModel):
@@ -187,12 +190,21 @@ class FidelityAudit(BaseModel):
     confident: bool
 
 
+class SkimReview(BaseModel):
+    """Judgment of the paper's skim layer: title, abstract, captions, topic sentences, conclusion."""
+    issues: list[str] = []
+    sells: bool = False
+    score: float = 0.0  # [0,1]
+    confident: bool = True
+
+
 class CritiqueBundle(BaseModel):
     round: int
     persona_reviews: list[PersonaReview]
     narrative: NarrativeReview
     fidelity: FidelityAudit
     slop: SlopReport
+    skim: SkimReview | None = None
     confident: bool
 
 

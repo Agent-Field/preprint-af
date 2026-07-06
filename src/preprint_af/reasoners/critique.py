@@ -12,6 +12,7 @@ from .models import (
     FidelityAudit,
     NarrativeReview,
     PersonaReview,
+    SkimReview,
     SlopReport,
 )
 
@@ -74,6 +75,17 @@ _PERSONA_DEFS: list[tuple[str, str]] = [
         "reference to something not yet established, or an unexplained leap? You are the reader who "
         "gets stuck on the concrete confusion everyone else glosses over. Flag undefined-before-use "
         "notation, misplaced or unreferenced figures, and any point where the reading breaks down.",
+    ),
+    (
+        "senior-coauthor",
+        "You are the senior co-author doing the final read before submission. All your colleagues "
+        "hunt for overclaims; your job is the opposite pressure. Flag UNDER-claiming and defensive "
+        "writing: hedges not required by the evidence, results announced apologetically, limitations "
+        "stated more than once or leaking into the narrative instead of living in one Limitations "
+        "paragraph, methodology provenance (seeds, hardware, N) repeated outside Methods, buried "
+        "ledes where the paragraph's real result arrives in the last sentence wrapped in caveats. "
+        "A claim scoped correctly should be stated with full confidence. Point to the exact sentence "
+        "and give the confident rewrite direction.",
     ),
 ]
 
@@ -259,6 +271,113 @@ async def fidelity_audit(
         )
 
 
+_SKIM_CAP = 20_000
+
+
+def _skim_layer(workspace: dict) -> str:
+    """Deterministically assemble the skim artifact from workspace paper files.
+
+    Collects: title, abstract, every figure caption (section order), the first
+    sentence of every paragraph across all sections, and the full final section.
+    Caps total output at _SKIM_CAP characters.
+    """
+    paper_dir = workspace["paper_dir"]
+    sections_dir = workspace["sections_dir"]
+    main_tex = helpers.read_text(os.path.join(paper_dir, "main.tex")) or ""
+
+    # --- title ---
+    title = ""
+    m = re.search(r"\\title\{([^}]*)\}", main_tex, re.DOTALL)
+    if m:
+        title = m.group(1).strip()
+
+    # --- abstract ---
+    abstract = ""
+    m = re.search(r"\\begin\{abstract\}(.*?)\\end\{abstract\}", main_tex, re.DOTALL)
+    if m:
+        abstract = m.group(1).strip()
+
+    # --- figure captions (from sections in sorted order) ---
+    section_files: list[str] = sorted(
+        [f for f in os.listdir(sections_dir) if f.endswith(".tex")]
+        if os.path.isdir(sections_dir) else []
+    )
+    captions: list[str] = []
+    topic_sentences: list[str] = []
+    last_section_text = ""
+
+    for fname in section_files:
+        fpath = os.path.join(sections_dir, fname)
+        text = helpers.read_text(fpath) or ""
+        last_section_text = text
+
+        # extract all \caption{...} (non-greedy, handles single-line captions)
+        for cap in re.findall(r"\\caption\{([^}]*)\}", text, re.DOTALL):
+            stripped = cap.strip()
+            if stripped:
+                captions.append(stripped)
+
+        # first sentence of each blank-line-separated paragraph, skipping LaTeX-only lines
+        for block in re.split(r"\n\s*\n", text):
+            lines = [l for l in block.splitlines() if l.strip() and not l.strip().startswith("\\")]
+            if not lines:
+                continue
+            prose = " ".join(lines)
+            # take up to the first sentence boundary
+            m_sent = re.search(r"[.!?](?:\s|$)", prose)
+            first_sent = prose[: m_sent.end()].strip() if m_sent else prose.strip()
+            if first_sent:
+                topic_sentences.append(first_sent)
+
+    parts: list[str] = []
+    parts.append(f"TITLE:\n{title or '(not found)'}\n")
+    parts.append(f"ABSTRACT:\n{abstract or '(not found)'}\n")
+    parts.append("FIGURE CAPTIONS:\n" + ("\n".join(f"- {c}" for c in captions) or "(none found)") + "\n")
+    parts.append(
+        "TOPIC SENTENCES (first sentence of each paragraph, in order):\n"
+        + ("\n".join(f"- {s}" for s in topic_sentences) or "(none found)") + "\n"
+    )
+    parts.append(f"CONCLUSION:\n{last_section_text or '(not found)'}\n")
+
+    artifact = "\n".join(parts)
+    return artifact[:_SKIM_CAP]
+
+
+@router.reasoner()
+async def skim_review(
+    workspace: dict, round_no: int, model: str | None = None
+) -> SkimReview:
+    """One .ai review of the paper's skim layer: title, abstract, captions, topic sentences, conclusion."""
+    print(f"[critique] skim_review round={round_no}")
+    try:
+        artifact = _skim_layer(workspace)
+        result = await router.ai(
+            system=(
+                "You are a busy expert reviewer deciding whether to champion a paper. You will see "
+                "ONLY what a skimming reviewer sees: title, abstract, figure captions, the first "
+                "sentence of every paragraph, and the conclusion. Judge whether this skim layer "
+                "alone delivers the claim, the evidence, and the delta over prior work. A paper "
+                "whose skim layer does not sell it will not be saved by its body text."
+            ),
+            user=(
+                f"Round {round_no}. Here is the skim layer of the manuscript:\n\n{artifact}\n\n"
+                "Return:\n"
+                "- issues: list of concrete, actionable gaps in the skim layer "
+                "(e.g. 'no caption states the headline number', "
+                "'topic sentences describe setup, not claims')\n"
+                "- sells: true if you would champion this paper from the skim layer alone\n"
+                "- score: [0,1] overall quality of the skim layer\n"
+                "- confident: whether you had enough signal to judge"
+            ),
+            schema=SkimReview,
+            model=helpers.ai_model(model),
+        )
+        return result
+    except Exception as err:  # noqa: BLE001 — degrade gracefully, never crash the round.
+        print(f"[critique] skim_review crashed: {err}")
+        return SkimReview(issues=[f"skim review crashed: {err}"], confident=False)
+
+
 @router.reasoner()
 async def run_critique(
     workspace: dict, round_no: int, model: str | None = None
@@ -289,6 +408,14 @@ async def run_critique(
     tasks.append(
         router.call(
             f"{nid}.critique_fidelity_audit",
+            workspace=workspace,
+            round_no=round_no,
+            model=model,
+        )
+    )
+    tasks.append(
+        router.call(
+            f"{nid}.critique_skim_review",
             workspace=workspace,
             round_no=round_no,
             model=model,
@@ -341,6 +468,19 @@ async def run_critique(
     else:
         fidelity = FidelityAudit(**fid_res)
 
+    # skim_review — degrade gracefully on exception, never fail the round.
+    skim_res = results[len(PERSONAS) + 2]
+    skim: SkimReview | None
+    if isinstance(skim_res, Exception):
+        print(f"[critique] skim gather error (degrading): {skim_res}")
+        skim = None
+    else:
+        try:
+            skim = SkimReview(**skim_res)
+        except Exception as err:  # noqa: BLE001
+            print(f"[critique] skim parse error (degrading): {err}")
+            skim = None
+
     # Deterministic slop lint — direct helper call, NOT a reasoner, NOT in the gather.
     slop: SlopReport = helpers.slop_lint(paper_dir)
 
@@ -357,10 +497,11 @@ async def run_critique(
         narrative=narrative,
         fidelity=fidelity,
         slop=slop,
+        skim=skim,
         confident=confident,
     )
 
-    _write_round_artifacts(workspace, round_no, persona_reviews, narrative, fidelity, slop, bundle)
+    _write_round_artifacts(workspace, round_no, persona_reviews, narrative, fidelity, slop, bundle, skim)
     print(
         f"[critique] round={round_no} done confident={confident} "
         f"fidelity_blocking={fidelity.blocking} slop_score={slop.score:.3f} "
@@ -388,7 +529,7 @@ def _issue_table(issues) -> str:
 
 
 def _write_round_artifacts(
-    workspace, round_no, persona_reviews, narrative, fidelity, slop, bundle
+    workspace, round_no, persona_reviews, narrative, fidelity, slop, bundle, skim=None
 ) -> None:
     round_dir = os.path.join(workspace["reviews_dir"], f"round_{round_no}")
 
@@ -436,6 +577,16 @@ def _write_round_artifacts(
         for v in grouped[rule]:
             parts.append(f"- `{v.file}:{v.line}` — {_md_cell(v.excerpt)}")
     helpers.write_text(os.path.join(round_dir, "slop.md"), "\n".join(parts) + "\n")
+
+    if skim is not None:
+        skim_issues = "\n".join(f"- {i}" for i in skim.issues) or "_No issues reported._"
+        skim_md = (
+            f"# Skim review (round {round_no})\n\n"
+            f"**Sells:** {skim.sells}  \n**Score:** {skim.score:.3f}  \n"
+            f"**Confident:** {skim.confident}\n\n"
+            f"## Issues\n\n{skim_issues}\n"
+        )
+        helpers.write_text(os.path.join(round_dir, "skim.md"), skim_md)
 
     helpers.write_text(
         os.path.join(round_dir, "bundle.json"), bundle.model_dump_json(indent=2)

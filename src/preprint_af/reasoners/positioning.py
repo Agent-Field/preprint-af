@@ -48,11 +48,12 @@ async def generate_frames(
     workspace: dict,
     target_venue: str | None = None,
     field_hint: str | None = None,
+    mode: str = "position",
     model: str | None = None,
 ) -> FrameSet:
     ws = Workspace(**workspace)
     evidence = helpers.read_text(ws.evidence_path, limit=EVIDENCE_CAP)
-    print(f"[positioning] generate_frames: {len(evidence)} chars of evidence, venue={target_venue!r}")
+    print(f"[positioning] generate_frames: {len(evidence)} chars of evidence, venue={target_venue!r}, mode={mode!r}")
 
     system = (
         "You are a scientific positioning strategist deciding how to frame a paper "
@@ -65,6 +66,15 @@ async def generate_frames(
         "frame. You never invent numbers, datasets, or results, and you refuse to "
         "propose a frame the evidence cannot support."
     )
+    if mode == "position":
+        system += (
+            " POSITION MODE: the evidence set is CLOSED. Every frame must be fully "
+            "supportable by the evidence ledger as it stands. Do NOT propose frames "
+            "whose central thesis needs experiments, datasets, or analyses that are "
+            "absent from EVIDENCE.md. A frame that would be stronger 'with one more "
+            "experiment' is the WRONG frame; surface the strongest story the existing "
+            "evidence already tells."
+        )
     user = (
         f"Target venue: {target_venue or 'not specified'}\n"
         f"Field hint: {field_hint or 'not specified'}\n\n"
@@ -257,10 +267,11 @@ async def run_positioning(
     target_venue: str | None = None,
     field_hint: str | None = None,
     allow_web: bool = True,
+    mode: str = "position",
     model: str | None = None,
 ) -> PositioningDecision:
     ws = Workspace(**workspace)
-    print(f"[positioning] run_positioning: venue={target_venue!r}, allow_web={allow_web}")
+    print(f"[positioning] run_positioning: venue={target_venue!r}, allow_web={allow_web}, mode={mode!r}")
 
     # -- frames ------------------------------------------------------------- #
     frame_set = FrameSet(
@@ -269,6 +280,7 @@ async def run_positioning(
             workspace=workspace,
             target_venue=target_venue,
             field_hint=field_hint,
+            mode=mode,
             model=model,
         )
     )
@@ -326,6 +338,11 @@ async def run_positioning(
         "be discounted. Then write the paper's real front matter, obeying the hard "
         "constraints below, in the plain voice of a senior scientist."
     )
+    if mode == "position":
+        system += (
+            " In position mode the winner must be fully closable with existing "
+            "evidence; penalize frames whose weakest link is missing data."
+        )
     user = (
         f"Target venue: {target_venue or 'not specified'}\n"
         f"Field hint: {field_hint or 'not specified'}\n\n"

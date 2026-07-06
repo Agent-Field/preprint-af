@@ -85,15 +85,39 @@ def _blueprint_system() -> str:
         "the list. Attach figure slugs to the sections that reference them via `figure_slugs`.\n"
         "- `citation_needs`: concrete works or claims that will need a citation.\n"
         "- `venue_notes`: how the target venue shapes structure, length, and emphasis.\n"
-        "Ground everything in the provided EVIDENCE.md and POSITIONING.md. Do not invent results."
+        "Ground everything in the provided EVIDENCE.md and POSITIONING.md. Do not invent results.\n\n"
+        "Limitations placement: designate exactly ONE location for limitations — a short Limitations "
+        "paragraph inside the discussion/conclusion section, or a clause in Methods. No other section "
+        "may carry limitation prose. Assign provenance details (seeds, N, hardware) to the Methods "
+        "section beats only.\n\n"
+        "Intro funnel: the opening section's beats must form a funnel: accepted field truth -> "
+        "sharpening tension -> precise gap -> this paper's answer."
+    )
+
+
+def _mode_block(mode: str) -> str:
+    if mode == "position":
+        return (
+            "POSITION MODE (default): the evidence set is CLOSED. You may NOT plan figures with "
+            "buildable=false in the main text and may not plan sections that depend on missing data. "
+            "If a story beat lacks evidence, restructure the story around what exists, or convert "
+            "the gap into one clause in the Limitations location. The paper must be complete and "
+            "submission-ready from existing evidence alone."
+        )
+    # propose mode (or any other future mode)
+    return (
+        "PROPOSE MODE: buildable=false figures are allowed as TODOs, and sections may reference "
+        "planned data that does not yet exist. Mark such figures clearly with buildable=False and "
+        "use todobox placeholders in beats where data is pending."
     )
 
 
 def _blueprint_user(evidence_md: str, positioning_md: str, input_files: list[str],
-                    target_venue: str | None) -> str:
+                    target_venue: str | None, mode: str = "position") -> str:
     listing = "\n".join(f"  - input/{p}" for p in input_files) or "  (no input files listed)"
     return (
         f"TARGET VENUE: {target_venue or 'not specified'}\n\n"
+        f"=== MODE ===\n{_mode_block(mode)}\n\n"
         "=== EVIDENCE.md (fact ledger; use these fact ids and figure candidates) ===\n"
         f"{evidence_md or '(EVIDENCE.md is empty or missing)'}\n\n"
         "=== POSITIONING.md (the winning frame, final title/abstract, contribution order) ===\n"
@@ -111,8 +135,12 @@ def _blueprint_user(evidence_md: str, positioning_md: str, input_files: list[str
 
 @router.reasoner()
 async def design_blueprint(workspace: dict, target_venue: str | None = None,
+                           mode: str = "position",
                            model: str | None = None) -> Blueprint:
     """P2: design the paper blueprint and write BLUEPRINT.md + paper/main.tex.
+
+    mode="position" (default): evidence set is closed; no unbuildable figures in main text.
+    mode="propose": unbuildable figures allowed as TODOs for future work.
 
     This is the only reasoner allowed to raise: a paper cannot proceed without a blueprint.
     """
@@ -126,19 +154,30 @@ async def design_blueprint(workspace: dict, target_venue: str | None = None,
     evidence_md = helpers.read_text(evidence_path, limit=TEXT_CAP)
     positioning_md = helpers.read_text(positioning_path, limit=TEXT_CAP)
 
-    print(f"[blueprint] designing blueprint (evidence={len(evidence_md)}c positioning={len(positioning_md)}c "
-          f"input_files={len(input_files)})")
+    print(f"[blueprint] designing blueprint (mode={mode} evidence={len(evidence_md)}c "
+          f"positioning={len(positioning_md)}c input_files={len(input_files)})")
 
     try:
         blueprint: Blueprint = await router.ai(
             system=_blueprint_system(),
-            user=_blueprint_user(evidence_md, positioning_md, input_files, target_venue),
+            user=_blueprint_user(evidence_md, positioning_md, input_files, target_venue, mode),
             schema=Blueprint,
             model=helpers.ai_model(model),
         )
     except Exception as exc:  # noqa: BLE001 — blueprint failure aborts the run
         print(f"[blueprint] FATAL: blueprint .ai call failed: {exc}")
         raise ValueError(f"Blueprint design failed; a paper cannot proceed without a blueprint: {exc}") from exc
+
+    # In position mode, drop any FigureSpec the LLM returned with buildable=False.
+    # Record them in venue_notes so they are not silently lost.
+    if mode == "position":
+        excluded = [f for f in blueprint.figures if not f.buildable]
+        if excluded:
+            slugs = ", ".join(f.slug for f in excluded)
+            print(f"[blueprint] position mode: excluding {len(excluded)} unbuildable figure(s): {slugs}")
+            note = f"excluded in position mode: {slugs}"
+            blueprint.venue_notes = (blueprint.venue_notes or "") + f"\n\n<!-- {note} -->"
+            blueprint.figures = [f for f in blueprint.figures if f.buildable]
 
     sections = list(blueprint.sections)
     if len(sections) < 4:
