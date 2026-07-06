@@ -1,5 +1,6 @@
 from .blueprint import router as blueprint_router
 from .build import router as build_router
+from .convergence import router as convergence_router
 from .critique import router as critique_router
 from .intake import router as intake_router
 from .latex import router as latex_router
@@ -15,6 +16,7 @@ __all__ = [
     "build_router",
     "latex_router",
     "critique_router",
+    "convergence_router",
     "prose_router",
     "repair_router",
     "workflow_router",

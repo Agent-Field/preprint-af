@@ -181,18 +181,43 @@ def _fallback_blocking_plan(fidelity: dict, err: object) -> RepairPlan:
     )
 
 
+def _ledger_block(ledger_open_majors: list[dict] | None) -> str:
+    """Render the open-majors ledger block (with attempt counts) for the planner prompt."""
+    if not ledger_open_majors:
+        return ""
+    lines: list[str] = []
+    for i in ledger_open_majors:
+        iid = i.get("id", "?")
+        target = i.get("target", "global")
+        attempts = i.get("attempts", 0)
+        desc = str(i.get("description", "")).replace("\n", " ").strip()
+        hint = str(i.get("fix_hint", "")).replace("\n", " ").strip()
+        lines.append(f"- [{iid}] target={target} attempts={attempts}: {desc} (fix: {hint})")
+    return "\n\nLEDGER (open majors, with attempt counts):\n" + "\n".join(lines) + "\n"
+
+
 @router.reasoner()
 async def plan_repairs(
-    workspace: dict, critique: dict, model: str | None = None
+    workspace: dict,
+    critique: dict,
+    ledger_open_majors: list[dict] | None = None,
+    model: str | None = None,
 ) -> RepairPlan:
-    """One .ai call routing critique findings into at most 8 targeted RepairTasks."""
+    """One .ai call routing critique findings into at most 8 targeted RepairTasks.
+
+    When ``ledger_open_majors`` is provided, the plan MUST be driven by these open issues (plus
+    blocking fidelity findings from the bundle). Each RepairTask carries `addresses` (ledger
+    issue ids it resolves). Minor issues are never repaired while any major/blocking issue is open.
+    """
     fidelity = critique.get("fidelity", {}) or {}
     print(
         f"[repair] plan_repairs round={critique.get('round')} "
-        f"fidelity_blocking={bool(fidelity.get('blocking'))}"
+        f"fidelity_blocking={bool(fidelity.get('blocking'))} "
+        f"ledger_open_majors={len(ledger_open_majors or [])}"
     )
     try:
         compact = _compact_critique(critique)
+        ledger_txt = _ledger_block(ledger_open_majors)
         result = await router.ai(
             system=(
                 "You are a repair planner turning reviewer findings into a bounded set of edit "
@@ -208,14 +233,24 @@ async def plan_repairs(
                 "the relevant section for topic-sentence issues; if attribution is unclear use "
                 "'global'. Instructions must be concrete, executable edits ('rewrite the opening "
                 "sentence to state the measured 3.2x speedup'), never judgments ('improve the "
-                "flow'). If the critique contains nothing worth fixing (no major issues, no "
-                "fidelity findings, only trivial residue), return an EMPTY tasks list — that "
-                "signals convergence. Set `confident` truthfully."
+                "flow').\n\n"
+                "When a LEDGER block is present, the plan MUST be driven by those open major issues "
+                "plus any blocking fidelity findings. Fill each RepairTask's `addresses` with the "
+                "ledger issue ids it resolves (empty list is allowed only for purely mechanical "
+                "tasks with no ledger id). Issues with attempts >= 2 have resisted targeted "
+                "patching: for those, plan a full rewrite of the target (fix_hint escalation), not "
+                "another patch. NEVER plan repairs for minor issues while any major or blocking "
+                "issue is open; batch minors only once every major is exhausted (this prevents "
+                "infinite polishing).\n\n"
+                "If the critique contains nothing worth fixing (no major issues, no fidelity "
+                "findings, only trivial residue), return an EMPTY tasks list — that signals "
+                "convergence. Set `confident` truthfully."
             ),
             user=(
                 "Critique digest (compacted CritiqueBundle):\n"
-                f"{json.dumps(compact, indent=2, default=str)}\n\n"
-                "Return a RepairPlan with tasks (target, instructions, priority), notes, confident."
+                f"{json.dumps(compact, indent=2, default=str)}"
+                f"{ledger_txt}\n\n"
+                "Return a RepairPlan with tasks (target, instructions, priority, addresses), notes, confident."
             ),
             schema=RepairPlan,
             model=helpers.ai_model(model),

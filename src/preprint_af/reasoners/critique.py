@@ -103,6 +103,30 @@ _REVIEW_DIRECTIVE = (
 )
 
 
+_LEDGER_ANCHOR_CAP = 6_000
+
+
+def _ledger_anchor_block(open_issues: list[dict] | None) -> str:
+    """Render the known-issue-ledger anchor block injected into anchored reviews.
+
+    Returns an empty string when there are no tracked issues.
+    """
+    if not open_issues:
+        return ""
+    lines: list[str] = []
+    for i in open_issues:
+        iid = i.get("id", "?")
+        status = i.get("status", "open")
+        desc = str(i.get("description", "")).replace("\n", " ").strip()
+        lines.append(f"- [{iid}] ({status}) {desc}")
+    body = "\n".join(lines)[:_LEDGER_ANCHOR_CAP]
+    return (
+        "\n\nKNOWN ISSUE LEDGER — these problems are already tracked; do NOT re-report them "
+        "or reworded versions of them. Report only NEW issues absent from this list:\n"
+        f"{body}\n"
+    )
+
+
 def _persona_slug(persona: str) -> str:
     for slug, brief in _PERSONA_DEFS:
         if brief == persona:
@@ -137,11 +161,16 @@ def _invented_cite_keys(paper: str, bib_keys: list[str]) -> list[str]:
 
 @router.reasoner()
 async def persona_review(
-    workspace: dict, persona: str, round_no: int, model: str | None = None
+    workspace: dict,
+    persona: str,
+    round_no: int,
+    open_issues: list[dict] | None = None,
+    model: str | None = None,
 ) -> PersonaReview:
     """One .ai review of the full paper from a single reviewer persona."""
     paper_dir = workspace["paper_dir"]
     paper = helpers.assemble_paper_text(paper_dir)[:PAPER_CAP]
+    anchor = _ledger_anchor_block(open_issues)
     print(f"[critique] persona_review round={round_no} persona={_persona_slug(persona)}")
     try:
         result = await router.ai(
@@ -149,7 +178,7 @@ async def persona_review(
             user=(
                 f"Reviewing round {round_no}. Here is the complete assembled manuscript "
                 f"(main.tex + all sections, with '--- <file> ---' markers):\n\n{paper}\n\n"
-                "Return your located issues, acceptance_risk, verdict, and confidence."
+                f"Return your located issues, acceptance_risk, verdict, and confidence.{anchor}"
             ),
             schema=PersonaReview,
             model=helpers.ai_model(model),
@@ -168,13 +197,17 @@ async def persona_review(
 
 @router.reasoner()
 async def narrative_review(
-    workspace: dict, round_no: int, model: str | None = None
+    workspace: dict,
+    round_no: int,
+    open_issues: list[dict] | None = None,
+    model: str | None = None,
 ) -> NarrativeReview:
     """One .ai review of the paper's transitions, promise alignment, and story arc."""
     paper_dir = workspace["paper_dir"]
     paper = helpers.assemble_paper_text(paper_dir)[:PAPER_CAP]
     positioning = helpers.read_text(workspace["positioning_path"], limit=CONTEXT_CAP)
     blueprint = helpers.read_text(workspace["blueprint_path"], limit=CONTEXT_CAP)
+    anchor = _ledger_anchor_block(open_issues)
     print(f"[critique] narrative_review round={round_no}")
     try:
         result = await router.ai(
@@ -198,6 +231,7 @@ async def narrative_review(
                 f"{blueprint or '(BLUEPRINT.md unavailable)'}\n\n"
                 f"Complete assembled manuscript:\n\n{paper}\n\n"
                 "Return transition_issues, promise_alignment_issues, arc_assessment, score, confident."
+                f"{anchor}"
             ),
             schema=NarrativeReview,
             model=helpers.ai_model(model),
@@ -380,9 +414,16 @@ async def skim_review(
 
 @router.reasoner()
 async def run_critique(
-    workspace: dict, round_no: int, model: str | None = None
+    workspace: dict,
+    round_no: int,
+    open_issues: list[dict] | None = None,
+    model: str | None = None,
 ) -> CritiqueBundle:
-    """Orchestrator: all persona/narrative/fidelity reviewers in ONE gather + deterministic slop."""
+    """Orchestrator: all persona/narrative/fidelity reviewers in ONE gather + deterministic slop.
+
+    ``open_issues`` (serialized open+resolved ledger entries) anchors the persona and narrative
+    reviewers so they report only NEW issues. Fidelity stays unanchored (cheap ground truth).
+    """
     nid = helpers.node_id()
     paper_dir = workspace["paper_dir"]
     print(f"[critique] run_critique round={round_no} personas={len(PERSONAS)}")
@@ -393,6 +434,7 @@ async def run_critique(
             workspace=workspace,
             persona=persona,
             round_no=round_no,
+            open_issues=open_issues,
             model=model,
         )
         for persona in PERSONAS
@@ -402,6 +444,7 @@ async def run_critique(
             f"{nid}.critique_narrative_review",
             workspace=workspace,
             round_no=round_no,
+            open_issues=open_issues,
             model=model,
         )
     )

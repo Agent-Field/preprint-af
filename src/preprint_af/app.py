@@ -9,6 +9,7 @@ from agentfield import Agent, AIConfig, HarnessConfig
 from preprint_af.reasoners import (
     blueprint_router,
     build_router,
+    convergence_router,
     critique_router,
     intake_router,
     latex_router,
@@ -49,6 +50,7 @@ def build_app() -> Agent:
         build_router,
         latex_router,
         critique_router,
+        convergence_router,
         prose_router,
         repair_router,
         workflow_router,

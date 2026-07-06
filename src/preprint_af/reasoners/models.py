@@ -10,8 +10,12 @@ class WriteRequest(BaseModel):
     max_rounds: int = Field(default=3, ge=1, le=8, description="Cap on critique/repair rounds after the first full build.")
     allow_web: bool = Field(default=True, description="Allow web lookups for citations and positioning scans.")
     dry_run: bool = Field(default=False, description="Stop after evidence, positioning, and blueprint; write no paper.")
+    # TELEMETRY-ONLY (backward compat): quality_threshold and plateau_delta no longer gate
+    # convergence. The loop is driven by countable/binary controls (open ledger majors,
+    # compile status, fidelity blocking, slop tolerance, skim sells, pairwise verdicts).
     quality_threshold: float = Field(default=0.90, ge=0.0, le=1.0)
     plateau_delta: float = Field(default=0.01, ge=0.0, le=0.1)
+    slop_tolerance: int = Field(default=3, ge=0, description="Max slop violations tolerated at convergence.")
     model: str | None = None
     # "position" = tell the strongest story with existing evidence only (default);
     # "propose" = may surface missing experiments as TODOs
@@ -212,12 +216,52 @@ class RepairTask(BaseModel):
     target: str = Field(description="Section slug, 'front_matter', 'figures', or 'bibliography'.")
     instructions: list[str]
     priority: str = Field(description="high | medium | low")
+    addresses: list[str] = Field(
+        default_factory=list,
+        description="Ledger issue ids this task resolves; empty for mechanical/derived tasks.",
+    )
 
 
 class RepairPlan(BaseModel):
     tasks: list[RepairTask]
     notes: str = ""
     confident: bool
+
+
+class LedgerIssue(BaseModel):
+    id: str = Field(description="'I-<round>-<seq>', stable forever once assigned.")
+    fingerprint: str = Field(description="Dedup key: normalized target + key phrase.")
+    persona: str = Field(description="Originating reviewer (persona name, 'fidelity', 'narrative', 'skim', 'slop').")
+    target: str = Field(description="section slug | front_matter | figures | bibliography | global")
+    severity: str = Field(description="major | minor")
+    description: str
+    fix_hint: str = ""
+    status: str = "open"  # open | resolved | wontfix
+    round_opened: int
+    round_resolved: int | None = None
+    attempts: int = 0  # repair attempts so far
+
+
+class IssueVerification(BaseModel):
+    issue_id: str
+    resolved: bool
+    evidence: str = ""  # short quote proving resolution (or why not)
+
+
+class VerificationReport(BaseModel):
+    verifications: list[IssueVerification] = []
+    confident: bool = True
+
+
+class PairwiseVerdict(BaseModel):
+    winner: str = "tie"  # current | previous | tie
+    rationale: str = ""
+    confident: bool = True
+
+
+class DedupDecision(BaseModel):
+    duplicates: dict[str, str] = {}  # candidate_key -> existing ledger issue id
+    confident: bool = True
 
 
 class RoundRecord(BaseModel):
