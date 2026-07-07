@@ -121,11 +121,17 @@ class FigureSpec(BaseModel):
     caption_takeaway: str = ""
 
 
+class UnusedEvidence(BaseModel):
+    fact_id: str = Field(description="EVIDENCE.md fact id, e.g. 'E7'.")
+    reason: str = Field(description="Honest one-line reason this fact does not fit the paper's story.")
+
+
 class Blueprint(BaseModel):
     sections: list[SectionSpec]
     figures: list[FigureSpec]
     citation_needs: list[str] = Field(default_factory=list)
     venue_notes: str = ""
+    unused_evidence: list[UnusedEvidence] = Field(default_factory=list)
     confident: bool
 
 

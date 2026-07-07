@@ -127,6 +127,116 @@ def assemble_paper_text(paper_dir: str) -> str:
     return "\n\n".join(parts)
 
 
+# --------------------------------------------------------------------------- #
+# Evidence coverage (deterministic; never raises on absent files)             #
+# --------------------------------------------------------------------------- #
+
+_EVIDENCE_HEADING_RX = re.compile(r"^\s*###\s+(E\d+)\b")
+# A `% E<n>` (or `% E1, E2` / `% E1 E2`) comment line placed after a sentence.
+_EVIDENCE_COMMENT_RX = re.compile(r"^%\s*(E\d+(?:\s*[,\s]\s*E\d+)*)\s*$")
+
+
+def evidence_fact_ids(root: str | Path) -> list[str]:
+    """Parse EVIDENCE.md for `### E<n>` headings; return ids ('E1','E2',...) in order.
+
+    Empty list if EVIDENCE.md is missing or has no fact headings.
+    """
+    text = read_text(Path(root) / "EVIDENCE.md")
+    if not text:
+        return []
+    ids: list[str] = []
+    seen: set[str] = set()
+    for line in text.splitlines():
+        m = _EVIDENCE_HEADING_RX.match(line)
+        if m and m.group(1) not in seen:
+            seen.add(m.group(1))
+            ids.append(m.group(1))
+    return ids
+
+
+def evidence_fact_excerpt(root: str | Path, fact_id: str) -> str:
+    """Return the fact's Statement line (or first non-empty line of its block), ~200 chars.
+
+    "" if EVIDENCE.md is missing or the fact id is not found.
+    """
+    text = read_text(Path(root) / "EVIDENCE.md")
+    if not text:
+        return ""
+    lines = text.splitlines()
+    in_block = False
+    fallback = ""
+    for line in lines:
+        m = _EVIDENCE_HEADING_RX.match(line)
+        if m:
+            if in_block:  # reached the next fact without finding a Statement line
+                break
+            in_block = m.group(1) == fact_id
+            continue
+        if not in_block:
+            continue
+        if line.strip().startswith("## "):  # left the Facts section
+            break
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Prefer the Statement line: `- **Statement:** ...`, `**Statement:** ...`,
+        # or a bare `Statement: ...`. Drop the leading bullet and any bold markers.
+        label = stripped.lstrip("-*").strip()
+        sm = re.match(r"\**\s*statement\s*:?\s*\**\s*:?\s*(.+)$", label, re.IGNORECASE)
+        if sm:
+            return sm.group(1).strip().lstrip("*").strip()[:200]
+        if not fallback:
+            fallback = stripped[:200]
+    return fallback
+
+
+def used_evidence_ids(root: str | Path) -> set[str]:
+    """Scan paper/sections/*.tex and paper/main.tex for `% E<n>` evidence comment lines.
+
+    A single comment line may list several ids (`% E1, E2` or `% E1 E2`). Returns the
+    union of every id referenced. Empty set if the paper directory is absent.
+    """
+    paper = Path(root) / "paper"
+    files: list[Path] = []
+    main = paper / "main.tex"
+    if main.exists():
+        files.append(main)
+    sections = paper / "sections"
+    if sections.is_dir():
+        files.extend(sorted(sections.glob("*.tex")))
+    used: set[str] = set()
+    for path in files:
+        for line in read_text(path).splitlines():
+            m = _EVIDENCE_COMMENT_RX.match(line.strip())
+            if m:
+                for tok in re.findall(r"E\d+", m.group(1)):
+                    used.add(tok)
+    return used
+
+
+def evidence_coverage(root: str | Path) -> dict:
+    """Deterministic evidence-coverage summary; never raises on absent files.
+
+    Returns {"total": int, "used": sorted list, "unused": sorted list,
+    "ratio": float (1.0 when total == 0)}.
+    """
+    all_ids = evidence_fact_ids(root)
+    total = len(all_ids)
+    used_set = used_evidence_ids(root) & set(all_ids)
+    unused = [fid for fid in all_ids if fid not in used_set]
+    used = [fid for fid in all_ids if fid in used_set]
+
+    def _key(fid: str) -> tuple[int, str]:
+        return (int(fid[1:]) if fid[1:].isdigit() else 0, fid)
+
+    return {
+        "total": total,
+        "used": sorted(used, key=_key),
+        "unused": sorted(unused, key=_key),
+        "ratio": 1.0 if total == 0 else len(used) / total,
+    }
+
+
 def save_state(root: str, state: dict) -> None:
     write_text(Path(root) / "STATE.json", json.dumps(state, indent=2))
 

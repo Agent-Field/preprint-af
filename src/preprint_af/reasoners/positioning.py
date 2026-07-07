@@ -108,18 +108,28 @@ async def generate_frames(
         "paper honestly, and put your reasoning about the spread of frames in "
         "`generation_rationale`."
     )
-    try:
-        result = await router.ai(
-            system=system,
-            user=user,
-            schema=FrameSet,
-            model=helpers.ai_model(model),
-        )
+    last_error = ""
+    for attempt in range(1, 4):
+        try:
+            result = await router.ai(
+                system=system,
+                user=user,
+                schema=FrameSet,
+                model=helpers.ai_model(model),
+            )
+        except Exception as exc:  # noqa: BLE001
+            last_error = str(exc)
+            print(f"[positioning] generate_frames attempt {attempt}/3 failed: {exc}")
+            continue
+        if len(result.frames) == 0:
+            last_error = "returned 0 frames"
+            print(f"[positioning] generate_frames attempt {attempt}/3 failed: returned 0 frames")
+            continue
         print(f"[positioning] generate_frames: {len(result.frames)} frames (confident={result.confident})")
         return result
-    except Exception as exc:  # noqa: BLE001
-        print(f"[positioning] generate_frames FAILED: {exc}")
-        return helpers.safe_ai_fallback(FrameSet, generation_rationale=f"frame generation failed: {exc}")
+    raise RuntimeError(
+        f"generate_frames failed after 3 attempts; last error: {last_error}"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -284,6 +294,11 @@ async def run_positioning(
             model=model,
         )
     )
+    if not frame_set.frames:
+        raise RuntimeError(
+            "positioning aborted: no candidate frames were generated; "
+            "refusing to fabricate a title or abstract"
+        )
     top_frames = sorted(frame_set.frames, key=_frame_score, reverse=True)[:TOP_FRAMES]
     print(f"[positioning] selected top {len(top_frames)} of {len(frame_set.frames)} frames")
 
@@ -379,6 +394,26 @@ async def run_positioning(
         print(f"[positioning] meta-selection FAILED, falling back to best-judged frame: {exc}")
         decision = _fallback_decision(top_frames, judgments)
 
+    # Sanity gate: the meta-editor must return real front matter that names one of the
+    # candidate frames. A refusal or meta-commentary answer (empty title/abstract or a
+    # winning_frame_name that matches no candidate) is rejected and replaced with the
+    # deterministic fallback, which composes from a real frame.
+    candidate_names = {f.name.strip().casefold() for f in top_frames}
+    winner_name = decision.winning_frame_name.strip().casefold()
+    if (
+        not decision.final_title.strip()
+        or not decision.final_abstract.strip()
+        or winner_name not in candidate_names
+    ):
+        print(
+            "[positioning] meta-selection produced out-of-band front matter "
+            f"(title_empty={not decision.final_title.strip()}, "
+            f"abstract_empty={not decision.final_abstract.strip()}, "
+            f"winner={decision.winning_frame_name!r} matches_candidate="
+            f"{winner_name in candidate_names}); falling back to best-judged frame"
+        )
+        decision = _fallback_decision(top_frames, judgments)
+
     _write_positioning_md(ws, decision, top_frames, judgments, novelty)
     helpers.git_snapshot(ws.root, "P1 positioning decided")
     print(f"[positioning] wrote {ws.positioning_path}")
@@ -415,17 +450,10 @@ def _fallback_decision(
             best_frame = frame
 
     if best_frame is None:
-        # No frames at all: fully degraded fallback.
-        return helpers.safe_ai_fallback(
-            PositioningDecision,
-            winning_frame_name="",
-            final_title="Untitled draft",
-            final_abstract="",
-            opening_thesis="",
-            contribution_order=[],
-            rejected_alternatives=[],
-            selection_rationale="Meta-selection failed and no candidate frames were available.",
-            score=0.0,
+        # A positioning decision must never exist without at least one real frame.
+        raise RuntimeError(
+            "positioning aborted: no candidate frames were generated; "
+            "refusing to fabricate a title or abstract"
         )
 
     rejected = [f.name for f in frames if f.name != best_frame.name]

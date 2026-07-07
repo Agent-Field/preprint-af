@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import os
 from statistics import mean
 
 from agentfield import AgentRouter
@@ -111,10 +112,13 @@ def _compose_review(
     polish_detail: str = "",
     ledger: list[LedgerIssue] | None = None,
     pairwise_verdicts: list[tuple[int, str]] | None = None,
+    coverage_line: str = "",
 ) -> str:
     parts: list[str] = ["# REVIEW — unresolved problems\n"]
     parts.append(f"Mode: **{mode}**\n")
     parts.append(f"Stop reason: **{stop_reason}**\n")
+    if coverage_line:
+        parts.append(f"{coverage_line}\n")
     polish_line = f"Voice-unification polish: **{polish_outcome}**"
     if polish_detail:
         polish_line += f" ({polish_detail})"
@@ -371,6 +375,11 @@ async def write_paper(
         )
     )
     print(f"[P2] blueprint: {len(bp.sections)} sections, {len(bp.figures)} figures")
+    # Fact ids the blueprint deliberately excluded from the story. Threaded into the
+    # round loop (to skip coverage candidates for them) and into finalization (to
+    # supply the recorded reason in UNUSED_EVIDENCE.md).
+    bp_unused_reasons: dict[str, str] = {u.fact_id: u.reason for u in bp.unused_evidence}
+    bp_unused_ids: set[str] = set(bp_unused_reasons)
     helpers.save_state(ws.root, {"phase": "P2", "sections": len(bp.sections), "figures": len(bp.figures)})
     helpers.git_snapshot(ws.root, "P2 blueprint")
 
@@ -459,6 +468,31 @@ async def write_paper(
 
         # 3. Merge findings into the ledger: deterministic fingerprint pass, then one dedup call.
         candidates = _candidates_from_bundle(bundle)
+
+        # 3a. Evidence-coverage candidates: any fact unused in the paper that the blueprint
+        # did NOT deliberately exclude becomes a minor global finding pushing the writer to
+        # weave it in. Same make_candidate mechanism -> stable fingerprint (target "global"
+        # + fixed description head "Evidence fact E<n> is unused ...") makes it idempotent
+        # across rounds via the pre_fps dedup below. Severity "minor" keeps it out of the
+        # zero-open-majors convergence gate.
+        cov = helpers.evidence_coverage(ws.root)
+        for fid in cov["unused"]:
+            if fid in bp_unused_ids:
+                continue
+            excerpt = helpers.evidence_fact_excerpt(ws.root, fid)
+            candidates.append(
+                convergence.make_candidate(
+                    persona="coverage",
+                    target="global",
+                    severity="minor",
+                    description=(
+                        f"Evidence fact {fid} is unused in the paper: {excerpt}. "
+                        "Weave it into the most natural section (Methods and SI count), "
+                        "or it will be reported as unused evidence."
+                    ),
+                )
+            )
+
         pre_fps = {i.fingerprint for i in ledger}
         survivors = {
             str(idx): c for idx, c in enumerate(candidates) if c["fingerprint"] not in pre_fps
@@ -527,6 +561,7 @@ async def write_paper(
                     "slop_score": record.slop_score,
                     "compile_ok": compile_ok,
                     "open_majors": len(open_major_issues),
+                    "evidence_coverage": helpers.evidence_coverage(ws.root)["ratio"],
                     "repairs_applied": record.repairs_applied,
                     "stop": record.stop,
                     "stop_reason": record.stop_reason,
@@ -722,6 +757,49 @@ async def write_paper(
         # state from disk is not needed here since the pass reverts to a compiling tree.
     helpers.save_state(ws.root, {"phase": "polish", "outcome": polish_outcome, "detail": polish_detail})
 
+    # ---- Evidence-coverage finalization ----------------------------------
+    # No fact silently disappears: every unused fact is recorded, with a reason, in
+    # UNUSED_EVIDENCE.md. If all facts are used, no file is written (and any stale one
+    # from an earlier round of this run is removed).
+    final_cov = helpers.evidence_coverage(ws.root)
+    unused_path = f"{ws.root}/UNUSED_EVIDENCE.md"
+    total, used, unused = final_cov["total"], final_cov["used"], final_cov["unused"]
+    if unused:
+        parts = [
+            "# Unused evidence",
+            "",
+            "Facts from EVIDENCE.md that did not fit the paper's story. Nothing was silently "
+            "dropped; each entry records why.",
+            "",
+        ]
+        for fid in unused:
+            excerpt = helpers.evidence_fact_excerpt(ws.root, fid)
+            reason = bp_unused_reasons.get(
+                fid, "could not be integrated into the narrative during writing"
+            )
+            parts.append(f"## {fid}")
+            parts.append("")
+            parts.append(f"- Excerpt: {excerpt or '(no statement found)'}")
+            parts.append(f"- Reason: {reason}")
+            parts.append("")
+        helpers.write_text(unused_path, "\n".join(parts))
+        coverage_line = (
+            f"Evidence coverage: {len(used)}/{total} facts used "
+            f"({len(unused)} unused, see UNUSED_EVIDENCE.md)"
+        )
+    else:
+        # Remove a stale UNUSED_EVIDENCE.md left by an earlier round of this same run.
+        try:
+            os.remove(unused_path)
+        except OSError:
+            pass
+        coverage_line = f"Evidence coverage: {total}/{total} facts used"
+    print(f"[coverage] {coverage_line}")
+    helpers.save_state(
+        ws.root,
+        {"phase": "coverage", "evidence_coverage": final_cov["ratio"], "unused": unused},
+    )
+
     # ---- REVIEW.md + final result ----------------------------------------
     todo_digest = helpers.read_text(ws.todo_path, limit=6000)
     review_body = _compose_review(
@@ -734,6 +812,7 @@ async def write_paper(
         polish_detail,
         ledger=ledger,
         pairwise_verdicts=pairwise_verdicts,
+        coverage_line=coverage_line,
     )
     review_path = helpers.write_text(f"{ws.root}/REVIEW.md", review_body)
     helpers.git_snapshot(ws.root, "REVIEW")

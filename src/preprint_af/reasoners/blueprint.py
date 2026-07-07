@@ -6,7 +6,7 @@ import re
 from agentfield import AgentRouter
 
 from . import helpers
-from .models import Blueprint
+from .models import Blueprint, UnusedEvidence
 
 router = AgentRouter(prefix="blueprint", tags=["blueprint"])
 
@@ -86,6 +86,10 @@ def _blueprint_system() -> str:
         "- `citation_needs`: concrete works or claims that will need a citation.\n"
         "- `venue_notes`: how the target venue shapes structure, length, and emphasis.\n"
         "Ground everything in the provided EVIDENCE.md and POSITIONING.md. Do not invent results.\n\n"
+        "Every evidence fact id must be allocated: either assigned to at least one section's "
+        "evidence_ids, or listed in unused_evidence with an honest one-line reason why it does not "
+        "fit this paper's story. Prefer using a fact (including in Methods or a Limitations clause) "
+        "over discarding it; unused_evidence is the last resort.\n\n"
         "Limitations placement: designate exactly ONE location for limitations — a short Limitations "
         "paragraph inside the discussion/conclusion section, or a clause in Methods. No other section "
         "may carry limitation prose. Assign provenance details (seeds, N, hardware) to the Methods "
@@ -113,11 +117,14 @@ def _mode_block(mode: str) -> str:
 
 
 def _blueprint_user(evidence_md: str, positioning_md: str, input_files: list[str],
-                    target_venue: str | None, mode: str = "position") -> str:
+                    target_venue: str | None, mode: str = "position",
+                    fact_ids: list[str] | None = None) -> str:
     listing = "\n".join(f"  - input/{p}" for p in input_files) or "  (no input files listed)"
+    ids_line = ", ".join(fact_ids) if fact_ids else "(none parsed)"
     return (
         f"TARGET VENUE: {target_venue or 'not specified'}\n\n"
         f"=== MODE ===\n{_mode_block(mode)}\n\n"
+        f"EVIDENCE FACT IDS (allocate every one): {ids_line}\n\n"
         "=== EVIDENCE.md (fact ledger; use these fact ids and figure candidates) ===\n"
         f"{evidence_md or '(EVIDENCE.md is empty or missing)'}\n\n"
         "=== POSITIONING.md (the winning frame, final title/abstract, contribution order) ===\n"
@@ -153,14 +160,15 @@ async def design_blueprint(workspace: dict, target_venue: str | None = None,
 
     evidence_md = helpers.read_text(evidence_path, limit=TEXT_CAP)
     positioning_md = helpers.read_text(positioning_path, limit=TEXT_CAP)
+    fact_ids = helpers.evidence_fact_ids(root)
 
     print(f"[blueprint] designing blueprint (mode={mode} evidence={len(evidence_md)}c "
-          f"positioning={len(positioning_md)}c input_files={len(input_files)})")
+          f"positioning={len(positioning_md)}c input_files={len(input_files)} facts={len(fact_ids)})")
 
     try:
         blueprint: Blueprint = await router.ai(
             system=_blueprint_system(),
-            user=_blueprint_user(evidence_md, positioning_md, input_files, target_venue, mode),
+            user=_blueprint_user(evidence_md, positioning_md, input_files, target_venue, mode, fact_ids),
             schema=Blueprint,
             model=helpers.ai_model(model),
         )
@@ -198,6 +206,25 @@ async def design_blueprint(workspace: dict, target_venue: str | None = None,
         seen.add(slug)
         spec.slug = slug
     blueprint.sections = sections
+
+    # Mechanical allocation check: every parsed fact id must be either assigned to a
+    # section's evidence_ids or explicitly listed in unused_evidence. Any fact the
+    # blueprint left unallocated is appended to unused_evidence so nothing disappears.
+    assigned: set[str] = set()
+    for spec in sections:
+        assigned.update(spec.evidence_ids)
+    declared_unused = {u.fact_id for u in blueprint.unused_evidence}
+    allocated = assigned | declared_unused
+    unallocated = [fid for fid in fact_ids if fid not in allocated]
+    if unallocated:
+        print(f"[blueprint] warning: unallocated evidence: {', '.join(unallocated)}")
+        blueprint.unused_evidence = list(blueprint.unused_evidence) + [
+            UnusedEvidence(
+                fact_id=fid,
+                reason="not allocated by blueprint; needs integration or an explicit reason",
+            )
+            for fid in unallocated
+        ]
 
     _write_blueprint_md(blueprint_path, blueprint)
 
@@ -248,6 +275,17 @@ def _write_blueprint_md(path: str, blueprint: Blueprint) -> None:
             lines.append(f"- {c}")
     else:
         lines.append("- (none)")
+    lines.append("")
+
+    lines.append("## Unused evidence")
+    lines.append("")
+    lines.append("Facts deliberately excluded from the paper's story (section writers must not use these):")
+    lines.append("")
+    if blueprint.unused_evidence:
+        for u in blueprint.unused_evidence:
+            lines.append(f"- **{_cell(u.fact_id)}**: {_cell(u.reason)}")
+    else:
+        lines.append("- (none — every fact is allocated to a section)")
     lines.append("")
 
     lines.append("## Venue notes")
