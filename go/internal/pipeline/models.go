@@ -15,6 +15,7 @@ type WriteRequest struct {
 	FieldHint        *string `json:"field_hint"`
 	MaxRounds        int     `json:"max_rounds"`
 	AllowWeb         bool    `json:"allow_web"`
+	ShowTODOs        bool    `json:"show_todos"`
 	DryRun           bool    `json:"dry_run"`
 	QualityThreshold float64 `json:"quality_threshold"`
 	PlateauDelta     float64 `json:"plateau_delta"`
@@ -371,6 +372,78 @@ type FidelityAudit struct {
 	Blocking          bool     `json:"blocking"`
 	Score             float64  `json:"score"`
 	Confident         bool     `json:"confident"`
+}
+
+// FactualFinding is the located, executable unit used by the pre-compile
+// factual gate. Unlike the legacy FidelityAudit strings, it retains the exact
+// writable target so repairs can run concurrently without overlapping files.
+type FactualFinding struct {
+	Target            string   `json:"target"`
+	File              string   `json:"file"`
+	Line              int      `json:"line"`
+	Kind              string   `json:"kind"`
+	Claim             string   `json:"claim"`
+	EvidenceIDs       []string `json:"evidence_ids"`
+	SourcePaths       []string `json:"source_paths"`
+	Explanation       string   `json:"explanation"`
+	RepairInstruction string   `json:"repair_instruction"`
+	Blocking          bool     `json:"blocking"`
+}
+
+func NewFactualFinding() FactualFinding {
+	return FactualFinding{EvidenceIDs: []string{}, SourcePaths: []string{}}
+}
+
+func (v *FactualFinding) UnmarshalJSON(data []byte) error {
+	type plain FactualFinding
+	seeded := plain(NewFactualFinding())
+	if err := json.Unmarshal(data, &seeded); err != nil {
+		return err
+	}
+	*v = FactualFinding(seeded)
+	return nil
+}
+
+type FactualScopeAudit struct {
+	Target    string           `json:"target"`
+	Findings  []FactualFinding `json:"findings"`
+	Score     float64          `json:"score"`
+	Confident bool             `json:"confident"`
+}
+
+func NewFactualScopeAudit() FactualScopeAudit {
+	return FactualScopeAudit{Findings: []FactualFinding{}}
+}
+
+func (v *FactualScopeAudit) UnmarshalJSON(data []byte) error {
+	type plain FactualScopeAudit
+	seeded := plain(NewFactualScopeAudit())
+	if err := json.Unmarshal(data, &seeded); err != nil {
+		return err
+	}
+	*v = FactualScopeAudit(seeded)
+	return nil
+}
+
+type FactualGateReport struct {
+	Passed                bool                `json:"passed"`
+	Initial               []FactualScopeAudit `json:"initial"`
+	Reaudit               []FactualScopeAudit `json:"reaudit"`
+	DeterministicFindings []FactualFinding    `json:"deterministic_findings"`
+	RepairsApplied        int                 `json:"repairs_applied"`
+	Remaining             []FactualFinding    `json:"remaining"`
+	UnverifiableEvidence  []string            `json:"unverifiable_evidence"`
+	Confident             bool                `json:"confident"`
+}
+
+func NewFactualGateReport() FactualGateReport {
+	return FactualGateReport{
+		Initial:               []FactualScopeAudit{},
+		Reaudit:               []FactualScopeAudit{},
+		DeterministicFindings: []FactualFinding{},
+		Remaining:             []FactualFinding{},
+		UnverifiableEvidence:  []string{},
+	}
 }
 
 type CritiqueBundle struct {

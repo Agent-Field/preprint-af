@@ -22,6 +22,7 @@ func TestRegisteredReasonerSurfacePreservesPythonAndAddsVisualQuality(t *testing
 		"repair_plan_repairs", "repair_apply_repairs",
 		"write_paper",
 		"figure_ideate", "figure_render", "figure_review",
+		"factual_audit_scope", "factual_run_precompile_gate",
 	}
 	if got := n.RegisteredNames(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("reasoner surface drifted\ngot:  %#v\nwant: %#v", got, want)
