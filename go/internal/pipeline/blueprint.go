@@ -71,10 +71,12 @@ func (s *Service) DesignBlueprint(ctx context.Context, in DesignBlueprintInput) 
 	system := prompts.BlueprintSystemPrompt()
 	user := prompts.BlueprintUserPrompt(evidence, positioning, in.Workspace.InputFiles, stringValue(in.TargetVenue))
 	bp, err := aiInto[Blueprint](ctx, s, system, user, stringValue(in.Model))
-	if err != nil {
+	if err != nil || len(bp.Sections) < 4 {
 		// Large nested blueprints exceed the reliable structured-output path of
-		// some OpenRouter models. Escalate only the failed call to the existing
-		// file-backed harness, retaining the exact authored system/user text.
+		// some OpenRouter models. Some providers also report success with a
+		// semantically empty object. Escalate only that failed call to the
+		// existing file-backed harness, retaining the exact authored system/user
+		// text.
 		var hrErr error
 		var hrResult any
 		fallback, hr, fallbackErr := harnessInto[Blueprint](ctx, s, system+"\n\n"+user, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
@@ -83,7 +85,7 @@ func (s *Service) DesignBlueprint(ctx context.Context, in DesignBlueprintInput) 
 			hrResult = hr.FailureType
 		}
 		if fallbackErr != nil || hrErr != nil {
-			return nil, fmt.Errorf("Blueprint design failed; direct error: %v; harness error: %v %v %v", err, fallbackErr, hrErr, hrResult)
+			return nil, fmt.Errorf("Blueprint design failed; direct error: %v; direct sections: %d; harness error: %v %v %v", err, len(bp.Sections), fallbackErr, hrErr, hrResult)
 		}
 		bp = fallback
 	}
