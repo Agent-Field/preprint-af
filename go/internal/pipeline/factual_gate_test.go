@@ -54,6 +54,22 @@ func TestDeterministicFactualFindingsIgnoreLatexVariableDigits(t *testing.T) {
 	}
 }
 
+func TestDiscardNonNumericTraceFindingsRejectsModelFalsePositive(t *testing.T) {
+	audit := FactualScopeAudit{Findings: []FactualFinding{
+		{Kind: "missing_evidence_trace", Claim: `A large $s_1$ and runner-up $s_2$ define the margin.`},
+		{Kind: "missing_evidence_trace", Claim: `Hit-rate is 0.0378 at the operating point.`},
+		{Kind: "number_mismatch", Claim: `The reported value is wrong.`},
+	}}
+
+	got := discardNonNumericTraceFindings(audit)
+	if len(got.Findings) != 2 {
+		t.Fatalf("unexpected filtered findings: %#v", got.Findings)
+	}
+	if got.Findings[0].Claim != `Hit-rate is 0.0378 at the operating point.` || got.Findings[1].Kind != "number_mismatch" {
+		t.Fatalf("filter removed a valid factual finding: %#v", got.Findings)
+	}
+}
+
 func TestFactualScopesAreExactAndStable(t *testing.T) {
 	root := t.TempDir()
 	ws := Workspace{Root: root, PaperDir: filepath.Join(root, "paper"), SectionsDir: filepath.Join(root, "paper", "sections")}

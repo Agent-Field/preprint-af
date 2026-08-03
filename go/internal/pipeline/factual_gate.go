@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	maxFactualConcurrency = 4
+	maxFactualConcurrency = 2
 	maxFactualFindings    = 24
 )
 
@@ -137,6 +137,18 @@ func normalizeAudit(a FactualScopeAudit, scope factualScope, allowed map[string]
 	return a
 }
 
+func discardNonNumericTraceFindings(a FactualScopeAudit) FactualScopeAudit {
+	kept := a.Findings[:0]
+	for _, finding := range a.Findings {
+		if finding.Kind == "missing_evidence_trace" && !numericClaimRE.MatchString(finding.Claim) {
+			continue
+		}
+		kept = append(kept, finding)
+	}
+	a.Findings = kept
+	return a
+}
+
 func deterministicFactualFindings(target, file, body, evidence string, bib []string) []FactualFinding {
 	knownEvidence := ledgerIDs(evidence)
 	out := []FactualFinding{}
@@ -243,6 +255,7 @@ func (s *Service) AuditFactualScope(ctx context.Context, in AuditFactualScopeInp
 	}
 	audit = normalizeAudit(audit, scope, allowed)
 	if in.Target != "cross_document" {
+		audit = discardNonNumericTraceFindings(audit)
 		audit.Findings = dedupeFactualFindings(append(audit.Findings, deterministicFactualFindings(in.Target, in.File, body, evidence, bib)...))
 	}
 	return audit, nil
