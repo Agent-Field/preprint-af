@@ -30,12 +30,18 @@ func (n *Node) RegisterAll() {
 	regReasoner(n, "repair_apply_repairs", []string{"repair"}, n.Pipeline.ApplyRepairs)
 	regReasoner(n, "write_paper", []string{"entry", "workflow"}, n.Pipeline.WritePaper,
 		agent.WithInputSchema(writePaperInputSchema))
+	// Additive visual-quality subgraph. The original 19 public reasoners and
+	// their prompts remain intact; build_build_figure composes these children so
+	// ideation, rendering, and image critique are visible in the AgentField DAG.
+	regReasoner(n, "figure_ideate", []string{"build", "figure", "vision"}, n.Pipeline.IdeateFigure)
+	regReasoner(n, "figure_render", []string{"build", "figure"}, n.Pipeline.RenderFigure)
+	regReasoner(n, "figure_review", []string{"build", "figure", "vision", "verification"}, n.Pipeline.ReviewFigure)
 }
 
 func regReasoner[T any](n *Node, name string, tags []string, fn func(context.Context, T) (any, error), extra ...agent.ReasonerOption) {
 	opts := []agent.ReasonerOption{
 		agent.WithReasonerTags(tags...),
-		agent.WithDescription("Exact Go port of preprint-af's " + name + " reasoner."),
+		agent.WithDescription("Go preprint-af capability: " + name + "."),
 	}
 	opts = append(opts, extra...)
 	n.App.RegisterReasoner(name, func(ctx context.Context, input map[string]any) (any, error) {

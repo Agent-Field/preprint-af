@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -227,6 +228,7 @@ func (s *Service) ApplyRepairs(ctx context.Context, in ApplyRepairsInput) (any, 
 	if len(in.Plan.Tasks) == 0 {
 		return 0, nil
 	}
+	preservedFigures := snapshotFigureBlocks(in.Workspace)
 	front := []RepairTask{}
 	rest := []RepairTask{}
 	for _, t := range in.Plan.Tasks {
@@ -255,6 +257,61 @@ func (s *Service) ApplyRepairs(ctx context.Context, in ApplyRepairsInput) (any, 
 		})
 	}
 	_ = g.Wait()
+	if err := restoreMissingFigureBlocks(in.Workspace, preservedFigures); err != nil {
+		return nil, err
+	}
 	GitSnapshot(in.Workspace.Root, fmt.Sprintf("repairs applied (%d tasks)", applied))
 	return int(applied), nil
+}
+
+type preservedFigureBlock struct {
+	File  string
+	Asset string
+	Block string
+}
+
+var (
+	figureBlockPattern = regexp.MustCompile(`(?s)\\begin\{figure\}.*?\\end\{figure\}`)
+	figureAssetPattern = regexp.MustCompile(`\\includegraphics(?:\[[^]]*\])?\{([^}]+)\}`)
+)
+
+func snapshotFigureBlocks(ws Workspace) []preservedFigureBlock {
+	files, _ := filepath.Glob(filepath.Join(ws.SectionsDir, "*.tex"))
+	blocks := []preservedFigureBlock{}
+	for _, file := range files {
+		body := ReadText(file, 0)
+		for _, block := range figureBlockPattern.FindAllString(body, -1) {
+			match := figureAssetPattern.FindStringSubmatch(block)
+			if len(match) != 2 || !strings.HasPrefix(filepath.ToSlash(match[1]), "figures/") {
+				continue
+			}
+			asset := filepath.ToSlash(match[1])
+			if !FileExists(filepath.Join(ws.PaperDir, filepath.FromSlash(asset))) {
+				continue
+			}
+			blocks = append(blocks, preservedFigureBlock{File: file, Asset: asset, Block: block})
+		}
+	}
+	return blocks
+}
+
+func restoreMissingFigureBlocks(ws Workspace, blocks []preservedFigureBlock) error {
+	files, _ := filepath.Glob(filepath.Join(ws.SectionsDir, "*.tex"))
+	var corpus strings.Builder
+	for _, file := range files {
+		corpus.WriteString(ReadText(file, 0))
+		corpus.WriteByte('\n')
+	}
+	all := corpus.String()
+	for _, block := range blocks {
+		if strings.Contains(all, "{"+block.Asset+"}") {
+			continue
+		}
+		body := strings.TrimSpace(ReadText(block.File, 0))
+		if _, err := WriteText(block.File, body+"\n\n"+strings.TrimSpace(block.Block)+"\n"); err != nil {
+			return fmt.Errorf("restore validated figure %s: %w", block.Asset, err)
+		}
+		all += "\n" + block.Block
+	}
+	return nil
 }

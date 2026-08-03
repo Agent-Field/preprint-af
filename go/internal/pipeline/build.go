@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/Agent-Field/preprint-af/go/internal/prompts"
 	"golang.org/x/sync/errgroup"
@@ -77,34 +76,7 @@ func (s *Service) WriteSection(ctx context.Context, in WriteSectionInput) (any, 
 }
 
 func (s *Service) BuildFigure(ctx context.Context, in BuildFigureInput) (any, error) {
-	f := in.Figure
-	name := "figure:" + f.Slug
-	if !f.Buildable {
-		needs := "author data"
-		if len(f.DataSources) > 0 {
-			needs = strings.Join(f.DataSources, ", ")
-		}
-		brief := fmt.Sprintf("Figure %s: %s — needs %s", f.Slug, f.Purpose, needs)
-		AppendTODOs(in.Workspace.TODOPath, []string{brief})
-		return WorkerResult{Name: name, Status: "todo", Summary: brief, Files: []string{}}, nil
-	}
-	prompt := prompts.FigurePrompt(promptWorkspace(in.Workspace), pFigure(f), FigurePython())
-	_, hr, err := harnessInto[WorkerResult](ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
-	pdf := filepath.Join(in.Workspace.FiguresDir, f.Slug+".pdf")
-	if err != nil || !FileExists(pdf) {
-		reason := "paper/figures/" + f.Slug + ".pdf was not produced"
-		if err != nil {
-			reason = err.Error()
-		} else if hr != nil && hr.IsError {
-			reason = hr.ErrorMessage
-		}
-		return WorkerResult{Name: name, Status: "failed", Summary: reason, Files: []string{}}, nil
-	}
-	summary := f.CaptionTakeaway
-	if summary == "" {
-		summary = f.Purpose
-	}
-	return WorkerResult{Name: name, Status: "done", Summary: summary, Files: []string{"paper/figures/" + f.Slug + ".py", "paper/figures/" + f.Slug + ".pdf", "paper/figures/" + f.Slug + ".png"}}, nil
+	return s.buildFigureWithVisualQA(ctx, in)
 }
 
 func (s *Service) BuildBibliography(ctx context.Context, in BuildBibliographyInput) (any, error) {
@@ -173,6 +145,9 @@ func (s *Service) RunBuild(ctx context.Context, in RunBuildInput) (any, error) {
 	_ = g.Wait()
 	confident := bib.Status != "failed"
 	for _, x := range secResults {
+		confident = confident && x.Status == "done"
+	}
+	for _, x := range figResults {
 		confident = confident && x.Status == "done"
 	}
 	GitSnapshot(in.Workspace.Root, "P3 build complete")

@@ -202,6 +202,51 @@ type FigureSpec struct {
 	CaptionTakeaway string   `json:"caption_takeaway"`
 }
 
+// FigureDesign is the visual contract produced before a figure worker edits code.
+// It separates scientific visual judgment from implementation and gives the
+// renderer a small, inspectable target.
+type FigureDesign struct {
+	VisualKind  string   `json:"visual_kind"`
+	Composition string   `json:"composition"`
+	EvidenceUse []string `json:"evidence_use"`
+	Buildable   bool     `json:"buildable"`
+	Confident   bool     `json:"confident"`
+}
+
+func NewFigureDesign() FigureDesign { return FigureDesign{EvidenceUse: []string{}} }
+
+func (v *FigureDesign) UnmarshalJSON(data []byte) error {
+	type plain FigureDesign
+	seeded := plain(NewFigureDesign())
+	if err := json.Unmarshal(data, &seeded); err != nil {
+		return err
+	}
+	*v = FigureDesign(seeded)
+	return nil
+}
+
+// FigureReview is a vision review of the rendered PNG. HardFailures are
+// concrete defects that must trigger the bounded rebuild path.
+type FigureReview struct {
+	Score        float64  `json:"score"`
+	HardFailures []string `json:"hard_failures"`
+	Critique     string   `json:"critique"`
+	Rebuild      bool     `json:"rebuild"`
+	Confident    bool     `json:"confident"`
+}
+
+func NewFigureReview() FigureReview { return FigureReview{HardFailures: []string{}} }
+
+func (v *FigureReview) UnmarshalJSON(data []byte) error {
+	type plain FigureReview
+	seeded := plain(NewFigureReview())
+	if err := json.Unmarshal(data, &seeded); err != nil {
+		return err
+	}
+	*v = FigureReview(seeded)
+	return nil
+}
+
 func NewFigureSpec() FigureSpec { return FigureSpec{DataSources: []string{}} }
 
 func (v *FigureSpec) UnmarshalJSON(data []byte) error {

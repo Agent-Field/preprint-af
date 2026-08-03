@@ -88,7 +88,7 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 			r := records[idx]
 			_ = SaveState(ws.Root, map[string]any{"phase": "critique", "round": round, "total_score": total, "persona_score": r.PersonaScore, "narrative_score": r.NarrativeScore, "fidelity_score": r.FidelityScore, "slop_score": r.SlopScore, "compile_ok": compile.Success, "repairs_applied": r.RepairsApplied, "stop": r.Stop, "stop_reason": r.StopReason})
 		}
-		if compile.Success && total >= req.QualityThreshold && !b.Fidelity.Blocking {
+		if build.Confident && compile.Success && total >= req.QualityThreshold && !b.Fidelity.Blocking {
 			records[idx].Stop = true
 			records[idx].StopReason = "quality_threshold_met"
 			stopReason = records[idx].StopReason
@@ -148,7 +148,12 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 	if compile.Success {
 		pdf = compile.PDFPath
 	}
-	return WriteResult{Status: "completed", RunID: ws.RunID, Workspace: ws.Root, PDFPath: pdf, Title: decision.FinalTitle, Rounds: records, FinalScore: final, StopReason: stopReason, TODOPath: ws.TODOPath, ReviewPath: reviewPath, PositioningPath: ws.PositioningPath}, nil
+	status := "completed"
+	if !build.Confident {
+		status = "incomplete"
+		stopReason = "figure_or_build_quality_gate_failed"
+	}
+	return WriteResult{Status: status, RunID: ws.RunID, Workspace: ws.Root, PDFPath: pdf, Title: decision.FinalTitle, Rounds: records, FinalScore: final, StopReason: stopReason, TODOPath: ws.TODOPath, ReviewPath: reviewPath, PositioningPath: ws.PositioningPath}, nil
 }
 
 func round4(v float64) float64 { return math.Round(v*10000) / 10000 }

@@ -85,6 +85,49 @@ func aiInto[T any](ctx context.Context, s *Service, system, user, model string) 
 	return out, nil
 }
 
+// aiIntoWithImage is the vision counterpart of aiInto. The same rendered PNG
+// is attached to the primary request and the single bounded JSON repair, so a
+// transport repair can never silently degrade into a text-only review.
+func aiIntoWithImage[T any](ctx context.Context, s *Service, system, user, model, imagePath string) (T, error) {
+	var out T
+	schema, err := aiSchema[T]()
+	if err != nil {
+		return out, fmt.Errorf("build response schema: %w", err)
+	}
+	opts := []ai.Option{ai.WithSystem(system), ai.WithSchema(schema), ai.WithImageFile(imagePath)}
+	if model != "" {
+		opts = append(opts, ai.WithModel(modelForAPI(AIModel(model))))
+	}
+	resp, err := s.App.AI(ctx, user, opts...)
+	primaryErr := err
+	if primaryErr == nil {
+		if decodeErr := resp.Into(&out); decodeErr != nil {
+			primaryErr = decodeErr
+		} else if !semanticallyEmpty(reflect.ValueOf(out)) {
+			return out, nil
+		} else {
+			primaryErr = fmt.Errorf("empty structured response")
+		}
+	}
+
+	repairUser := user + "\n\nThe prior structured response was empty. Re-examine the attached image and return ONLY a substantive json object matching this json schema:\n" + string(schema)
+	repairOpts := []ai.Option{ai.WithSystem(system), ai.WithJSONMode(), ai.WithImageFile(imagePath)}
+	if model != "" {
+		repairOpts = append(repairOpts, ai.WithModel(modelForAPI(AIModel(model))))
+	}
+	resp, err = s.App.AI(ctx, repairUser, repairOpts...)
+	if err != nil {
+		return out, fmt.Errorf("structured vision response failed (%v); json repair failed: %w", primaryErr, err)
+	}
+	if err := resp.Into(&out); err != nil {
+		return out, fmt.Errorf("structured vision response failed (%v); decode json repair: %w", primaryErr, err)
+	}
+	if semanticallyEmpty(reflect.ValueOf(out)) {
+		return out, fmt.Errorf("model returned an empty structured vision response after one repair")
+	}
+	return out, nil
+}
+
 func semanticallyEmpty(v reflect.Value) bool {
 	if !v.IsValid() {
 		return true
