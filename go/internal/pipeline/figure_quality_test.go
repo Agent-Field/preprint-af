@@ -149,6 +149,17 @@ func TestStageMatchingFigureAssetsUsesUniqueScriptVocabulary(t *testing.T) {
 	}
 }
 
+func TestAuthorSuppliedFigureDesignRequiresCompleteBundle(t *testing.T) {
+	spec := FigureSpec{Purpose: "Primary result", DataSources: []string{"input/figures/result.py"}}
+	if _, ok := authorSuppliedFigureDesign(spec, []string{"result.py", "result.pdf"}); ok {
+		t.Fatal("incomplete author bundle unexpectedly accepted")
+	}
+	design, ok := authorSuppliedFigureDesign(spec, []string{"result.py", "result.pdf", "result.png"})
+	if !ok || !design.Buildable || !design.Confident || design.Composition != spec.Purpose {
+		t.Fatalf("complete author bundle rejected: %#v", design)
+	}
+}
+
 func TestBundledExampleResolvesRenamedBlueprintFigures(t *testing.T) {
 	input, err := filepath.Abs("../../../examples/serve-paper")
 	if err != nil {

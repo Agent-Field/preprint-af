@@ -40,6 +40,19 @@ type FigureReviewInput struct {
 	Model     *string      `json:"model"`
 }
 
+func authorSuppliedFigureDesign(f FigureSpec, assets []string) (FigureDesign, bool) {
+	if len(assets) != 3 {
+		return FigureDesign{}, false
+	}
+	return FigureDesign{
+		VisualKind:  "author-supplied Matplotlib figure",
+		Composition: f.Purpose,
+		EvidenceUse: append([]string(nil), f.DataSources...),
+		Buildable:   true,
+		Confident:   true,
+	}, true
+}
+
 func (s *Service) IdeateFigure(ctx context.Context, in FigureIdeateInput) (any, error) {
 	evidence := ReadText(in.Workspace.EvidencePath, 18000)
 	if evidence == "" {
@@ -123,7 +136,14 @@ func (s *Service) buildFigureWithVisualQA(ctx context.Context, in BuildFigureInp
 		Workspace: in.Workspace, Figure: in.Figure, Assets: assets, PreviewPath: preview, Model: in.Model,
 	})
 	if err != nil {
-		return WorkerResult{Name: name, Status: "failed", Summary: "figure ideation failed: " + err.Error(), Files: []string{}}, nil
+		fallback, ok := authorSuppliedFigureDesign(in.Figure, assets)
+		if !ok {
+			return WorkerResult{Name: name, Status: "failed", Summary: "figure ideation failed: " + err.Error(), Files: []string{}}, nil
+		}
+		// A complete author-supplied script/PDF/PNG bundle remains usable when a
+		// provider returns an empty design response. Preserve it as the design,
+		// then subject it to the same reproducibility and visual-review gates.
+		design = fallback
 	}
 	if len(assets) == 3 {
 		// A complete author-supplied script/PDF/PNG bundle is stronger evidence
