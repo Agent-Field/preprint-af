@@ -203,7 +203,7 @@ func (s *Service) runRepair(ctx context.Context, ws Workspace, t RepairTask, mod
 	files, patterns := resolveRepair(t, ws)
 	before := GitChangedFiles(ws.Root)
 	prompt := prompts.RepairTaskPrompt(files, t.Instructions)
-	_, hr, err := harnessInto[WorkerResult](ctx, s, prompt, stringValue(model), ws.Root, ws.Root)
+	hr, err := harnessArtifact(ctx, s, prompt, stringValue(model), ws.Root, ws.Root)
 	if err != nil {
 		return false, err
 	}

@@ -68,7 +68,7 @@ func (s *Service) RenderFigure(ctx context.Context, in FigureRenderInput) (any, 
 	}
 	base := prompts.FigurePrompt(promptWorkspace(in.Workspace), pFigure(f), FigurePython())
 	prompt := prompts.FigureRenderPrompt(base, prettyJSON(in.Design), in.PriorCritique, in.Attempt)
-	out, hr, err := harnessInto[WorkerResult](ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
+	hr, err := harnessArtifact(ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
 	if err != nil {
 		return WorkerResult{Name: "figure-render:" + f.Slug, Status: "failed", Summary: err.Error(), Files: []string{}}, nil
 	}
@@ -82,10 +82,7 @@ func (s *Service) RenderFigure(ctx context.Context, in FigureRenderInput) (any, 
 	if err != nil {
 		return WorkerResult{Name: "figure-render:" + f.Slug, Status: "failed", Summary: err.Error(), Files: []string{}}, nil
 	}
-	summary := out.Summary
-	if summary == "" {
-		summary = strings.Join(checks, "; ")
-	}
+	summary := strings.Join(checks, "; ")
 	return WorkerResult{Name: "figure-render:" + f.Slug, Status: "done", Summary: summary, Files: figureFiles(f.Slug)}, nil
 }
 

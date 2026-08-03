@@ -54,7 +54,7 @@ func (s *Service) WriteSection(ctx context.Context, in WriteSectionInput) (any, 
 		next = &v
 	}
 	prompt := prompts.SectionPrompt(promptWorkspace(in.Workspace), spec, prev, next)
-	out, hr, err := harnessInto[WorkerResult](ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
+	hr, err := harnessArtifact(ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
 	filename := fmt.Sprintf("%02d_%s.tex", in.Section.Index, in.Section.Slug)
 	abs := filepath.Join(in.Workspace.SectionsDir, filename)
 	rel := "paper/sections/" + filename
@@ -68,10 +68,7 @@ func (s *Service) WriteSection(ctx context.Context, in WriteSectionInput) (any, 
 		}
 		return WorkerResult{Name: name, Status: "failed", Summary: reason, Files: []string{}}, nil
 	}
-	summary := out.Summary
-	if summary == "" {
-		summary = "Wrote " + rel
-	}
+	summary := "Wrote " + rel
 	return WorkerResult{Name: name, Status: "done", Summary: summary, Files: []string{rel}}, nil
 }
 
@@ -81,7 +78,7 @@ func (s *Service) BuildFigure(ctx context.Context, in BuildFigureInput) (any, er
 
 func (s *Service) BuildBibliography(ctx context.Context, in BuildBibliographyInput) (any, error) {
 	prompt := prompts.BibliographyPrompt(promptWorkspace(in.Workspace), in.CitationNeeds, in.AllowWeb)
-	out, hr, err := harnessInto[WorkerResult](ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
+	hr, err := harnessArtifact(ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
 	refs := filepath.Join(in.Workspace.PaperDir, "refs.bib")
 	if err != nil || !FileExists(refs) {
 		reason := "paper/refs.bib was not created"
@@ -93,10 +90,7 @@ func (s *Service) BuildBibliography(ctx context.Context, in BuildBibliographyInp
 		_, _ = WriteText(refs, "% refs.bib — bibliography build failed; no entries were written.\n")
 		return WorkerResult{Name: "bibliography", Status: "failed", Summary: reason, Files: []string{"paper/refs.bib"}}, nil
 	}
-	summary := out.Summary
-	if summary == "" {
-		summary = "Bibliography assembled"
-	}
+	summary := "Bibliography assembled"
 	return WorkerResult{Name: "bibliography", Status: "done", Summary: summary, Files: []string{"paper/refs.bib"}}, nil
 }
 
@@ -104,13 +98,28 @@ func (s *Service) RunBuild(ctx context.Context, in RunBuildInput) (any, error) {
 	sections := append([]SectionSpec(nil), in.Blueprint.Sections...)
 	sort.SliceStable(sections, func(i, j int) bool { return sections[i].Index < sections[j].Index })
 	figures := in.Blueprint.Figures
+	secResults := make([]WorkerResult, len(sections))
+	figResults := make([]WorkerResult, len(figures))
+	// Figures depend only on the evidence ledger and source assets, so overlap
+	// them with bibliography construction. Sections wait for refs.bib because
+	// their citation contract depends on the verified key set.
+	figGroup, figCtx := errgroup.WithContext(ctx)
+	for i, fig := range figures {
+		i, fig := i, fig
+		figGroup.Go(func() error {
+			v, e := callInto[WorkerResult](figCtx, s, "build_build_figure", BuildFigureInput{Workspace: in.Workspace, Figure: fig, Model: in.Model})
+			if e != nil {
+				v = WorkerResult{Name: "figure:" + fig.Slug, Status: "failed", Summary: e.Error(), Files: []string{}}
+			}
+			figResults[i] = v
+			return nil
+		})
+	}
 	bib, err := callInto[WorkerResult](ctx, s, "build_build_bibliography", BuildBibliographyInput{Workspace: in.Workspace, CitationNeeds: in.Blueprint.CitationNeeds, AllowWeb: in.AllowWeb, Model: in.Model})
 	if err != nil {
 		bib = WorkerResult{Name: "bibliography", Status: "failed", Summary: err.Error(), Files: []string{}}
 	}
-	secResults := make([]WorkerResult, len(sections))
-	figResults := make([]WorkerResult, len(figures))
-	g, gctx := errgroup.WithContext(ctx)
+	sectionGroup, sectionCtx := errgroup.WithContext(ctx)
 	for i, sec := range sections {
 		i, sec := i, sec
 		var prev, next *SectionSpec
@@ -122,8 +131,8 @@ func (s *Service) RunBuild(ctx context.Context, in RunBuildInput) (any, error) {
 			v := sections[i+1]
 			next = &v
 		}
-		g.Go(func() error {
-			v, e := callInto[WorkerResult](gctx, s, "build_write_section", WriteSectionInput{Workspace: in.Workspace, Section: sec, PrevSection: prev, NextSection: next, Model: in.Model})
+		sectionGroup.Go(func() error {
+			v, e := callInto[WorkerResult](sectionCtx, s, "build_write_section", WriteSectionInput{Workspace: in.Workspace, Section: sec, PrevSection: prev, NextSection: next, Model: in.Model})
 			if e != nil {
 				v = WorkerResult{Name: "section:" + sec.Slug, Status: "failed", Summary: e.Error(), Files: []string{}}
 			}
@@ -131,18 +140,8 @@ func (s *Service) RunBuild(ctx context.Context, in RunBuildInput) (any, error) {
 			return nil
 		})
 	}
-	for i, fig := range figures {
-		i, fig := i, fig
-		g.Go(func() error {
-			v, e := callInto[WorkerResult](gctx, s, "build_build_figure", BuildFigureInput{Workspace: in.Workspace, Figure: fig, Model: in.Model})
-			if e != nil {
-				v = WorkerResult{Name: "figure:" + fig.Slug, Status: "failed", Summary: e.Error(), Files: []string{}}
-			}
-			figResults[i] = v
-			return nil
-		})
-	}
-	_ = g.Wait()
+	_ = sectionGroup.Wait()
+	_ = figGroup.Wait()
 	confident := bib.Status != "failed"
 	for _, x := range secResults {
 		confident = confident && x.Status == "done"

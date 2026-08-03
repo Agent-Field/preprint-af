@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Agent-Field/agentfield/sdk/go/ai"
 	"github.com/Agent-Field/agentfield/sdk/go/harness"
@@ -29,7 +30,7 @@ type Service struct {
 }
 
 func New(app App, nodeID string) *Service {
-	width := envIntValue("OPENCODE_MAX_CONCURRENT", 10)
+	width := envIntValue("OPENCODE_MAX_CONCURRENT", 6)
 	return &Service{App: app, NodeID: nodeID, harnessSlots: make(chan struct{}, width)}
 }
 
@@ -46,11 +47,14 @@ func aiInto[T any](ctx context.Context, s *Service, system, user, model string) 
 	if err != nil {
 		return out, fmt.Errorf("build response schema: %w", err)
 	}
-	opts := []ai.Option{ai.WithSystem(system), ai.WithSchema(schema)}
+	budget := structuredTokenBudget[T]()
+	opts := []ai.Option{ai.WithSystem(system), ai.WithSchema(schema), ai.WithMaxTokens(budget)}
 	if model != "" {
 		opts = append(opts, ai.WithModel(modelForAPI(AIModel(model))))
 	}
-	resp, err := s.App.AI(ctx, user, opts...)
+	attemptCtx, cancel := context.WithTimeout(ctx, structuredAttemptTimeout[T]())
+	resp, err := s.App.AI(attemptCtx, user, opts...)
+	cancel()
 	primaryErr := err
 	if primaryErr == nil {
 		if decodeErr := resp.Into(&out); decodeErr != nil {
@@ -68,11 +72,13 @@ func aiInto[T any](ctx context.Context, s *Service, system, user, model string) 
 	// repair in JSON mode. The schema suffix is generated, not authored prompt
 	// content, and prevents silent propagation of an empty reasoning result.
 	repairUser := user + "\n\nThe prior structured response was empty. Return ONLY a substantive json object matching this json schema; populate every field and obey all cardinalities:\n" + string(schema)
-	repairOpts := []ai.Option{ai.WithSystem(system), ai.WithJSONMode()}
+	repairOpts := []ai.Option{ai.WithSystem(system), ai.WithJSONMode(), ai.WithMaxTokens(budget)}
 	if model != "" {
 		repairOpts = append(repairOpts, ai.WithModel(modelForAPI(AIModel(model))))
 	}
-	resp, err = s.App.AI(ctx, repairUser, repairOpts...)
+	repairCtx, repairCancel := context.WithTimeout(ctx, structuredAttemptTimeout[T]())
+	resp, err = s.App.AI(repairCtx, repairUser, repairOpts...)
+	repairCancel()
 	if err != nil {
 		return out, fmt.Errorf("structured response failed (%v); json repair failed: %w", primaryErr, err)
 	}
@@ -94,11 +100,14 @@ func aiIntoWithImage[T any](ctx context.Context, s *Service, system, user, model
 	if err != nil {
 		return out, fmt.Errorf("build response schema: %w", err)
 	}
-	opts := []ai.Option{ai.WithSystem(system), ai.WithSchema(schema), ai.WithImageFile(imagePath)}
+	budget := structuredTokenBudget[T]()
+	opts := []ai.Option{ai.WithSystem(system), ai.WithSchema(schema), ai.WithImageFile(imagePath), ai.WithMaxTokens(budget)}
 	if model != "" {
 		opts = append(opts, ai.WithModel(modelForAPI(AIModel(model))))
 	}
-	resp, err := s.App.AI(ctx, user, opts...)
+	attemptCtx, cancel := context.WithTimeout(ctx, structuredAttemptTimeout[T]())
+	resp, err := s.App.AI(attemptCtx, user, opts...)
+	cancel()
 	primaryErr := err
 	if primaryErr == nil {
 		if decodeErr := resp.Into(&out); decodeErr != nil {
@@ -111,11 +120,13 @@ func aiIntoWithImage[T any](ctx context.Context, s *Service, system, user, model
 	}
 
 	repairUser := user + "\n\nThe prior structured response was empty. Re-examine the attached image and return ONLY a substantive json object matching this json schema:\n" + string(schema)
-	repairOpts := []ai.Option{ai.WithSystem(system), ai.WithJSONMode(), ai.WithImageFile(imagePath)}
+	repairOpts := []ai.Option{ai.WithSystem(system), ai.WithJSONMode(), ai.WithImageFile(imagePath), ai.WithMaxTokens(budget)}
 	if model != "" {
 		repairOpts = append(repairOpts, ai.WithModel(modelForAPI(AIModel(model))))
 	}
-	resp, err = s.App.AI(ctx, repairUser, repairOpts...)
+	repairCtx, repairCancel := context.WithTimeout(ctx, structuredAttemptTimeout[T]())
+	resp, err = s.App.AI(repairCtx, repairUser, repairOpts...)
+	repairCancel()
 	if err != nil {
 		return out, fmt.Errorf("structured vision response failed (%v); json repair failed: %w", primaryErr, err)
 	}
@@ -155,6 +166,33 @@ func semanticallyEmpty(v reflect.Value) bool {
 		return v.Float() == 0
 	default:
 		return v.IsZero()
+	}
+}
+
+// structuredTokenBudget keeps atomic swarm calls short while reserving enough
+// output for the two genuinely large planning artifacts. This limits output,
+// not input evidence, and does not alter any authored prompt or schema.
+func structuredTokenBudget[T any]() int {
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	switch t {
+	case reflect.TypeOf(FrameSet{}), reflect.TypeOf(Blueprint{}):
+		return 8192
+	case reflect.TypeOf(PositioningDecision{}), reflect.TypeOf(CritiqueBundle{}), reflect.TypeOf(FactualScopeAudit{}):
+		return 4096
+	default:
+		return 3072
+	}
+}
+
+func structuredAttemptTimeout[T any]() time.Duration {
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	switch t {
+	case reflect.TypeOf(FrameSet{}), reflect.TypeOf(Blueprint{}):
+		return 4 * time.Minute
+	case reflect.TypeOf(PositioningDecision{}), reflect.TypeOf(CritiqueBundle{}), reflect.TypeOf(FactualScopeAudit{}):
+		return 3 * time.Minute
+	default:
+		return 2 * time.Minute
 	}
 }
 
@@ -198,13 +236,7 @@ func harnessInto[T any](ctx context.Context, s *Service, prompt, model, cwd, pro
 		return zero, nil, err
 	}
 	defer s.releaseHarness()
-	parsed, result, err := harnessx.Run[T](ctx, s.App, prompt, harness.Options{
-		Provider:     "opencode",
-		Model:        OpenCodeModel(model),
-		Cwd:          cwd,
-		ProjectDir:   projectDir,
-		MaxBudgetUSD: envFloatValue("HARNESS_MAX_BUDGET_USD", 5.0),
-	})
+	parsed, result, err := harnessx.Run[T](ctx, s.App, prompt, harnessRunOptions(model, cwd, projectDir))
 	if err != nil {
 		return zero, result, err
 	}
@@ -212,6 +244,27 @@ func harnessInto[T any](ctx context.Context, s *Service, prompt, model, cwd, pro
 		return zero, result, nil
 	}
 	return *parsed, result, nil
+}
+
+// harnessArtifact runs file-producing workers without a redundant structured
+// result contract. Their real contract is the deterministic artifact check
+// performed by the caller, so schema retries only add latency and failure modes.
+func harnessArtifact(ctx context.Context, s *Service, prompt, model, cwd, projectDir string) (*harness.Result, error) {
+	if err := s.acquireHarness(ctx); err != nil {
+		return nil, err
+	}
+	defer s.releaseHarness()
+	return s.App.Harness(ctx, prompt, nil, nil, harnessRunOptions(model, cwd, projectDir))
+}
+
+func harnessRunOptions(model, cwd, projectDir string) harness.Options {
+	return harness.Options{
+		Provider:     "opencode",
+		Model:        OpenCodeModel(model),
+		Cwd:          cwd,
+		ProjectDir:   projectDir,
+		MaxBudgetUSD: envFloatValue("HARNESS_MAX_BUDGET_USD", 5.0),
+	}
 }
 
 func (s *Service) acquireHarness(ctx context.Context) error {

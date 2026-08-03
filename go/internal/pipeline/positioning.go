@@ -15,6 +15,7 @@ import (
 const evidenceCap = 60000
 const digestCap = 8000
 const topFrames = 4
+const maxPositioningConcurrency = 8
 
 type GenerateFramesInput struct {
 	Workspace   Workspace `json:"workspace"`
@@ -102,6 +103,7 @@ func (s *Service) RunPositioning(ctx context.Context, in RunPositioningInput) (a
 	var novelty NoveltyScan
 	var mu sync.Mutex
 	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(maxPositioningConcurrency)
 	for fi, f := range frames {
 		for pi, p := range prompts.PositioningPersonas {
 			idx := fi*len(prompts.PositioningPersonas) + pi
