@@ -261,7 +261,7 @@ func (v *FigureSpec) UnmarshalJSON(data []byte) error {
 }
 
 type Blueprint struct {
-	Sections      []SectionSpec `json:"sections"`
+	Sections      []SectionSpec `json:"sections" jsonschema:"minItems=6,maxItems=9"`
 	Figures       []FigureSpec  `json:"figures"`
 	CitationNeeds []string      `json:"citation_needs"`
 	VenueNotes    string        `json:"venue_notes"`
