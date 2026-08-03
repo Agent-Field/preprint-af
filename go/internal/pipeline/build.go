@@ -54,11 +54,15 @@ func (s *Service) WriteSection(ctx context.Context, in WriteSectionInput) (any, 
 		next = &v
 	}
 	prompt := prompts.SectionPrompt(promptWorkspace(in.Workspace), spec, prev, next)
-	hr, err := harnessArtifact(ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
 	filename := fmt.Sprintf("%02d_%s.tex", in.Section.Index, in.Section.Slug)
 	abs := filepath.Join(in.Workspace.SectionsDir, filename)
 	rel := "paper/sections/" + filename
 	name := "section:" + in.Section.Slug
+	hr, err := harnessArtifact(ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
+	if err == nil && hr != nil && !hr.IsError && (!FileExists(abs) || len(ReadText(abs, 0)) < 300) {
+		retry := prompt + "\n\nVERIFICATION RETRY: Your previous attempt did not create a substantive " + rel + " file. Use filesystem tools now, write that exact file with at least 300 characters under the same evidence and citation constraints, verify it exists, then finish. Do not merely describe the section."
+		hr, err = harnessArtifact(ctx, s, retry, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
+	}
 	if err != nil || !FileExists(abs) || len(ReadText(abs, 0)) < 300 {
 		reason := "section file missing or too small (<300 chars)"
 		if err != nil {
@@ -78,8 +82,12 @@ func (s *Service) BuildFigure(ctx context.Context, in BuildFigureInput) (any, er
 
 func (s *Service) BuildBibliography(ctx context.Context, in BuildBibliographyInput) (any, error) {
 	prompt := prompts.BibliographyPrompt(promptWorkspace(in.Workspace), in.CitationNeeds, in.AllowWeb)
-	hr, err := harnessArtifact(ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
 	refs := filepath.Join(in.Workspace.PaperDir, "refs.bib")
+	hr, err := harnessArtifact(ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
+	if err == nil && hr != nil && !hr.IsError && !FileExists(refs) {
+		retry := prompt + "\n\nVERIFICATION RETRY: Your previous attempt did not create paper/refs.bib. Use filesystem tools now, write that exact file under the same no-fabrication constraints, verify it exists, then finish. Do not merely describe the bibliography."
+		hr, err = harnessArtifact(ctx, s, retry, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
+	}
 	if err != nil || !FileExists(refs) {
 		reason := "paper/refs.bib was not created"
 		if err != nil {
