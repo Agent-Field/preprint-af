@@ -1,0 +1,19 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{hyperref}
+\newtcolorbox{todobox}{colback=yellow!10,colframe=yellow!50!black}
+\begin{document}
+\section{Runtime smoke test}
+\begin{todobox}The bundled LaTeX runtime is ready.\end{todobox}
+\[
+  \mathbf{x}^{\mathsf T}\mathbf{x} \ge 0.
+\]
+\begin{tabular}{lr}\toprule Runtime & Ready \\ \bottomrule\end{tabular}
+\end{document}

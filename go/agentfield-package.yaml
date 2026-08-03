@@ -1,0 +1,41 @@
+config_version: v1
+name: preprint-af-go
+version: 2.0.0
+description: Exact native Go port of preprint-af
+author: Agent-Field
+language: go
+
+entrypoint:
+  build: ./cmd/preprint-af
+  start: bin/preprint-af
+  healthcheck: /health
+
+agent_node:
+  node_id: preprint-af-go
+  default_port: 8001
+
+user_environment:
+  required:
+    - name: OPENROUTER_API_KEY
+      description: OpenRouter API key for direct reasoning and OpenCode workers
+      type: secret
+      scope: global
+  optional:
+    - name: AGENTFIELD_SERVER
+      description: AgentField control-plane URL
+      default: http://localhost:8080
+    - name: AI_MODEL
+      description: Direct reasoning model
+      default: openrouter/qwen/qwen3.7-flash
+    - name: OPENCODE_MODEL
+      description: OpenCode worker model
+      default: openrouter/qwen/qwen3.7-flash
+    - name: HARNESS_MAX_TURNS
+      description: Maximum OpenCode turns per worker
+      default: "40"
+    - name: AGENTFIELD_HARNESS_TIMEOUT_SECONDS
+      description: Harness timeout in seconds
+      default: "1800"
+    - name: FIGURE_PYTHON
+      description: Optional Python executable with plotting dependencies for native runs
+      default: ""

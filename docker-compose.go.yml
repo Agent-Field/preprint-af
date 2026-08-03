@@ -1,0 +1,23 @@
+services:
+  preprint-af-go:
+    build:
+      context: .
+      dockerfile: go/Dockerfile
+    environment:
+      AGENTFIELD_SERVER: ${AGENTFIELD_SERVER:-http://host.docker.internal:8080}
+      AGENT_CALLBACK_URL: ${AGENT_CALLBACK_URL:-http://localhost:8011}
+      AGENT_NODE_ID: preprint-af-go
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-openrouter/qwen/qwen3.7-flash}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-openrouter/qwen/qwen3.7-flash}
+      AGENTFIELD_HARNESS_TIMEOUT_SECONDS: ${AGENTFIELD_HARNESS_TIMEOUT_SECONDS:-1800}
+      OPENCODE_MAX_CONCURRENT: ${OPENCODE_MAX_CONCURRENT:-10}
+      HARNESS_MAX_TURNS: ${HARNESS_MAX_TURNS:-40}
+      HARNESS_PERMISSION_MODE: ${HARNESS_PERMISSION_MODE:-auto}
+      PORT: 8001
+    ports:
+      - "${AGENT_NODE_GO_PORT:-8011}:8001"
+    volumes:
+      - ./.tmp:/app/.tmp
+      - ${HOST_PAPERS_ROOT:-/Users/santoshkumar/Documents/agentfield/papers}:/Users/santoshkumar/Documents/agentfield/papers:ro
+    restart: on-failure
