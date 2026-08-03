@@ -44,6 +44,16 @@ func TestDeterministicFactualFindingsTraceAndCitation(t *testing.T) {
 	}
 }
 
+func TestDeterministicFactualFindingsIgnoreLatexVariableDigits(t *testing.T) {
+	body := `A large $s_1$ and the runner-up $s_2$ define $m=s_1-s_2$; the top-$k$ search supplies them.`
+	got := deterministicFactualFindings("method", "paper/sections/03_method.tex", body, "### E1\nFact\n", nil)
+	for _, finding := range got {
+		if finding.Kind == "missing_evidence_trace" {
+			t.Fatalf("LaTeX variable subscripts were treated as numeric claims: %#v", finding)
+		}
+	}
+}
+
 func TestFactualScopesAreExactAndStable(t *testing.T) {
 	root := t.TempDir()
 	ws := Workspace{Root: root, PaperDir: filepath.Join(root, "paper"), SectionsDir: filepath.Join(root, "paper", "sections")}

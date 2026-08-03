@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	maxFactualConcurrency = 8
+	maxFactualConcurrency = 4
 	maxFactualFindings    = 24
 )
 
@@ -39,7 +39,7 @@ type factualScope struct {
 var (
 	evidenceHeadingRE = regexp.MustCompile(`(?m)^###\s+(E\d+)\s*$`)
 	evidenceRefRE     = regexp.MustCompile(`\bE\d+\b`)
-	digitRE           = regexp.MustCompile(`\d`)
+	numericClaimRE    = regexp.MustCompile(`(?:^|[^A-Za-z_])\d+(?:\.\d+)?`)
 )
 
 func EvidenceLedgerValid(ws Workspace, summary EvidenceSummary) (bool, string) {
@@ -156,7 +156,7 @@ func deterministicFactualFindings(target, file, body, evidence string, bib []str
 	lines := strings.Split(body, "\n")
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if !digitRE.MatchString(trimmed) || strings.HasPrefix(trimmed, "%") || strings.Contains(trimmed, `\todobox{`) || structuralLatexLine(trimmed) {
+		if !numericClaimRE.MatchString(trimmed) || strings.HasPrefix(trimmed, "%") || strings.Contains(trimmed, `\todobox{`) || structuralLatexLine(trimmed) {
 			continue
 		}
 		if strings.Contains(line, "% E") || nextEvidenceComment(lines, i+1) {
@@ -226,6 +226,12 @@ func (s *Service) AuditFactualScope(ctx context.Context, in AuditFactualScopeInp
 	system := prompts.FactualScopeSystem
 	user := prompts.FactualScopePrompt(in.Target, scope.File, evidence, prettyJSON(bib), body, in.RoundNo)
 	audit, err := aiInto[FactualScopeAudit](ctx, s, system, user, stringValue(in.Model))
+	if err != nil {
+		// Larger audit prompts are more susceptible to transient empty structured
+		// responses. Retry the identical authored prompt once; the gate still
+		// fails closed if the provider cannot produce a confident audit.
+		audit, err = aiInto[FactualScopeAudit](ctx, s, system, user, stringValue(in.Model))
+	}
 	allowed := map[string]bool{}
 	if scopes, scopeErr := factualScopes(in.Workspace); scopeErr == nil {
 		for _, item := range scopes {
@@ -387,12 +393,18 @@ func (s *Service) RunFactualGate(ctx context.Context, in RunFactualGateInput) (a
 		} else {
 			report.RepairsApplied = applied
 			after := scopeHashes(in.Workspace, scopes)
-			for _, task := range plan.Tasks {
-				if before[task.Target] == after[task.Target] {
-					report.Remaining = append(report.Remaining, FactualFinding{Target: task.Target, Kind: "repair_no_change", Claim: task.Target, EvidenceIDs: []string{}, SourcePaths: []string{}, Explanation: "Factual repair task reported no verified change to its exact target.", RepairInstruction: "Apply the factual repair to the target file and verify the file changed.", Blocking: true})
+			report.Reaudit = runFactualAudits(ctx, s, in.Workspace, scopes, 2, in.Model)
+			stillBlocking := map[string]bool{}
+			for _, audit := range report.Reaudit {
+				for _, finding := range audit.Findings {
+					stillBlocking[finding.Target] = stillBlocking[finding.Target] || finding.Blocking
 				}
 			}
-			report.Reaudit = runFactualAudits(ctx, s, in.Workspace, scopes, 2, in.Model)
+			for _, task := range plan.Tasks {
+				if before[task.Target] == after[task.Target] && stillBlocking[task.Target] {
+					report.Remaining = append(report.Remaining, FactualFinding{Target: task.Target, Kind: "repair_no_change", Claim: task.Target, EvidenceIDs: []string{}, SourcePaths: []string{}, Explanation: "Factual repair task reported no verified change to its exact target, and independent re-audit still found a blocker.", RepairInstruction: "Apply the factual repair to the target file and verify the file changed.", Blocking: true})
+				}
+			}
 		}
 	}
 	finalAudits := report.Initial
