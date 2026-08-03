@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -157,6 +158,22 @@ func TestAuthorSuppliedFigureDesignRequiresCompleteBundle(t *testing.T) {
 	design, ok := authorSuppliedFigureDesign(spec, []string{"result.py", "result.pdf", "result.png"})
 	if !ok || !design.Buildable || !design.Confident || design.Composition != spec.Purpose {
 		t.Fatalf("complete author bundle rejected: %#v", design)
+	}
+}
+
+func TestNonBuildableFigureBecomesTODOWithoutIdeation(t *testing.T) {
+	root := t.TempDir()
+	todo := filepath.Join(root, "TODO.md")
+	result, err := (&Service{}).buildFigureWithVisualQA(context.Background(), BuildFigureInput{
+		Workspace: Workspace{TODOPath: todo},
+		Figure:    FigureSpec{Slug: "future_plot", Purpose: "Future experiment", Buildable: false},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := result.(WorkerResult)
+	if worker.Status != "todo" || !strings.Contains(ReadText(todo, 0), "future_plot") {
+		t.Fatalf("non-buildable figure was not preserved as TODO: %#v", worker)
 	}
 }
 

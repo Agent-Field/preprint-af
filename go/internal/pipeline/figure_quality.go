@@ -124,6 +124,15 @@ func (s *Service) ReviewFigure(ctx context.Context, in FigureReviewInput) (any, 
 
 func (s *Service) buildFigureWithVisualQA(ctx context.Context, in BuildFigureInput) (any, error) {
 	name := "figure:" + in.Figure.Slug
+	if !in.Figure.Buildable {
+		needs := "author data"
+		if len(in.Figure.DataSources) > 0 {
+			needs = strings.Join(in.Figure.DataSources, ", ")
+		}
+		brief := fmt.Sprintf("Figure %s: %s — needs %s", in.Figure.Slug, in.Figure.Purpose, needs)
+		AppendTODOs(in.Workspace.TODOPath, []string{brief})
+		return WorkerResult{Name: name, Status: "todo", Summary: brief, Files: []string{}}, nil
+	}
 	assets, stageErr := stageMatchingFigureAssets(in.Workspace, in.Figure)
 	if stageErr != nil {
 		return WorkerResult{Name: name, Status: "failed", Summary: stageErr.Error(), Files: []string{}}, nil

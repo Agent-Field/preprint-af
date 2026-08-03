@@ -102,6 +102,14 @@ func (s *Service) BuildBibliography(ctx context.Context, in BuildBibliographyInp
 	return WorkerResult{Name: "bibliography", Status: "done", Summary: summary, Files: []string{"paper/refs.bib"}}, nil
 }
 
+func buildConfident(sections []WorkerResult, bibliography WorkerResult) bool {
+	confident := bibliography.Status != "failed"
+	for _, section := range sections {
+		confident = confident && section.Status == "done"
+	}
+	return confident
+}
+
 func (s *Service) RunBuild(ctx context.Context, in RunBuildInput) (any, error) {
 	sections := append([]SectionSpec(nil), in.Blueprint.Sections...)
 	sort.SliceStable(sections, func(i, j int) bool { return sections[i].Index < sections[j].Index })
@@ -150,13 +158,11 @@ func (s *Service) RunBuild(ctx context.Context, in RunBuildInput) (any, error) {
 	}
 	_ = sectionGroup.Wait()
 	_ = figGroup.Wait()
-	confident := bib.Status != "failed"
-	for _, x := range secResults {
-		confident = confident && x.Status == "done"
-	}
-	for _, x := range figResults {
-		confident = confident && x.Status == "done"
-	}
+	// Match the Python workflow: non-buildable figures are durable TODO briefs,
+	// not manuscript-build failures. Prose and bibliography are the required
+	// build contract; figure quality is enforced independently for every figure
+	// that is actually built.
+	confident := buildConfident(secResults, bib)
 	GitSnapshot(in.Workspace.Root, "P3 build complete")
 	return BuildReport{Sections: secResults, Figures: figResults, Bibliography: bib, Confident: confident}, nil
 }
