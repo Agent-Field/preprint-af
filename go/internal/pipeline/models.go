@@ -119,7 +119,7 @@ type StoryFrame struct {
 }
 
 type FrameSet struct {
-	Frames              []StoryFrame `json:"frames"`
+	Frames              []StoryFrame `json:"frames" jsonschema:"minItems=5,maxItems=6"`
 	GenerationRationale string       `json:"generation_rationale"`
 	Confident           bool         `json:"confident"`
 }
