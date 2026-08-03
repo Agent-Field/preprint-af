@@ -244,6 +244,17 @@ func (s *Service) AuditFactualScope(ctx context.Context, in AuditFactualScopeInp
 		// fails closed if the provider cannot produce a confident audit.
 		audit, err = aiInto[FactualScopeAudit](ctx, s, system, user, stringValue(in.Model))
 	}
+	if err != nil {
+		// Some providers emit useful reasoning but no structured response for
+		// long audits. Give the exact authored prompt to the file-backed harness,
+		// which can recover the schema without changing the model or audit task.
+		fallback, _, fallbackErr := harnessInto[FactualScopeAudit](ctx, s, system+"\n\n"+user, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
+		if fallbackErr == nil {
+			audit, err = fallback, nil
+		} else {
+			err = fmt.Errorf("direct factual audit: %v; harness fallback: %w", err, fallbackErr)
+		}
+	}
 	allowed := map[string]bool{}
 	if scopes, scopeErr := factualScopes(in.Workspace); scopeErr == nil {
 		for _, item := range scopes {
