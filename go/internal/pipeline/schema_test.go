@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestStructuredSchemasMatchPythonCardinality(t *testing.T) {
+func TestStructuredSchemasMatchReferenceCardinality(t *testing.T) {
 	for name, raw := range map[string]json.RawMessage{
 		"frames":    mustSchema[FrameSet](t),
 		"blueprint": mustSchema[Blueprint](t),
@@ -23,10 +23,10 @@ func TestStructuredSchemasMatchPythonCardinality(t *testing.T) {
 			t.Fatalf("%s lacks nested item schema: %s", name, raw)
 		}
 		if _, exists := property["minItems"]; exists {
-			t.Fatalf("%s added a minItems constraint absent from Python Pydantic schema", name)
+			t.Fatalf("%s added a minItems constraint absent from the reference schema", name)
 		}
 		if _, exists := property["maxItems"]; exists {
-			t.Fatalf("%s added a maxItems constraint absent from Python Pydantic schema", name)
+			t.Fatalf("%s added a maxItems constraint absent from the reference schema", name)
 		}
 	}
 }

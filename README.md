@@ -5,7 +5,7 @@
 ### You do the research. `preprint-af` writes the paper. Point it at your data and results, get a submission-ready preprint. Built on [AgentField](https://github.com/Agent-Field?utm_source=github&utm_medium=readme&utm_campaign=preprint-af).
 
 [![Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-16a34a?style=for-the-badge)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Go](https://img.shields.io/badge/go-1.21%2B-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/dl/)
 [![Built with AgentField](https://img.shields.io/badge/Built%20with-AgentField-0A66C2?style=for-the-badge)](https://github.com/Agent-Field?utm_source=github&utm_medium=readme&utm_campaign=preprint-af)
 [![More from Agent-Field](https://img.shields.io/badge/More_from-Agent--Field-111827?style=for-the-badge&logo=github)](https://github.com/Agent-Field)
 
@@ -29,7 +29,7 @@ Point it at a folder (data, result tables, notebooks, a rough draft, an existing
 <img src="assets/hero.png" alt="preprint-af: you do the research, it writes the paper from your data and results" width="100%" />
 </p>
 
-Real output, not a mockup: the bundled example ([`examples/serve-paper`](examples/serve-paper)) compiled by `preprint-af` into [`main.pdf`](examples/serve-paper/main.pdf). The screenshots below are rendered from the checked-in PDF: pages 1 and 2, plus page 7 where the generated figures and ablation table appear.
+Real output, not a mockup: the bundled example ([`examples/serve-paper`](examples/serve-paper)) compiled by `preprint-af` into [`main.pdf`](examples/serve-paper/main.pdf). A verified Go run with DeepSeek v4 Flash is checked in [here](artifacts/deepseek-v4-flash/preprint-af-go.pdf). The screenshots below are rendered from the bundled PDF: pages 1 and 2, plus page 7 where the generated figures and ablation table appear.
 
 <p align="center">
   <a href="examples/serve-paper/main.pdf">
@@ -151,7 +151,7 @@ model tokens are spent judging it.
 The revision loop stops when the paper is actually done: the quality threshold is met with a clean
 compile and no fidelity blockers, or the score plateaus across rounds, or there is nothing left to
 repair. `max_rounds` is only a safety cap. Because OpenCode enforces no turn or budget limits, the
-loop budget is enforced in Python.
+loop budget is enforced by the node.
 
 ---
 
@@ -159,21 +159,24 @@ loop budget is enforced in Python.
 
 ### Host-native (recommended)
 
-The compile gate needs a real LaTeX toolchain, and figure scripts need Python. Running on the host
-uses your local TeX Live directly and lets the node read your real paper folders without volume
-mounts.
+The AgentField node is one Go binary. The compile gate needs a real LaTeX toolchain, and generated
+figure scripts need a Python plotting environment. Running on the host uses your local tools
+directly and lets the node read your real paper folders without volume mounts.
 
 **Prerequisites:** the [`af`](https://github.com/Agent-Field?utm_source=github&utm_medium=readme&utm_campaign=preprint-af) CLI, the [`opencode`](https://opencode.ai?utm_source=github&utm_medium=readme&utm_campaign=preprint-af)
-CLI, a LaTeX toolchain (`latexmk` + `pdflatex`, e.g. MacTeX or TeX Live), and an
-`OPENROUTER_API_KEY`.
+CLI, Go 1.21+, a LaTeX toolchain (`latexmk` + `pdflatex`, e.g. MacTeX or TeX Live), Python 3 with
+Matplotlib, NumPy, and Pandas, and an `OPENROUTER_API_KEY`.
 
 ```bash
-git clone <this-repo> && cd preprint-af
-cp .env.example .env                 # set OPENROUTER_API_KEY
-python -m venv .venv && .venv/bin/pip install -r requirements.txt
+git clone <this-repo> && cd preprint-af/go
+cp ../.env.example ../.env           # set OPENROUTER_API_KEY
+python3 -m venv ../.venv
+../.venv/bin/pip install matplotlib numpy pandas
+make check                           # vet, tests, stripped build
 
+set -a && source ../.env && set +a
 af server &                          # control plane on :8080
-PATH="$HOME/.opencode/bin:$PATH" .venv/bin/python main.py   # node on :8001
+PATH="$HOME/.opencode/bin:$PATH" FIGURE_PYTHON="$PWD/../.venv/bin/python" make run
 ```
 
 Confirm the node registered:
@@ -187,7 +190,7 @@ Run the bundled example (an existing draft to polish):
 
 ```bash
 EXEC=$(curl -sS -X POST http://localhost:8080/api/v1/execute/async/preprint-af.write_paper \
-  -H 'Content-Type: application/json' -d @examples/payload.json | jq -r '.execution_id')
+  -H 'Content-Type: application/json' -d @../examples/payload.json | jq -r '.execution_id')
 
 curl -sS http://localhost:8080/api/v1/executions/$EXEC | jq '{status, result}'
 ```
@@ -199,33 +202,10 @@ cp .env.example .env                 # set OPENROUTER_API_KEY
 docker compose up --build
 ```
 
-The image bundles TeX Live, OpenCode, and the Python plotting stack. Its build compiles the paper
-template as a smoke test. Mount the folder you want to write about and pass its in-container path
-as `folder_path`.
-
-### Native Go node
-
-The `go/` module is an exact port: the same 19 reasoners, prompt text, schemas,
-parallel fan-outs, compile gates, and convergence rules, packaged as one stripped static agent
-binary. It defaults to `openrouter/deepseek/deepseek-v4-pro` for direct reasoning and OpenCode workers.
-Native `af` runs use host `opencode`, `latexmk`, and `pdflatex`; use Docker for a self-contained
-runtime. Set `FIGURE_PYTHON` when figure scripts need a separate scientific Python environment.
-
-```bash
-cd go
-make check                           # vet, tests, stripped build
-OPENROUTER_API_KEY=... make run      # registers preprint-af on :8001
-```
-
-To run the Go stack instead of the Python stack:
-
-```bash
-docker compose -f docker-compose.go.yml up --build
-```
-
-The image bundles TeX Live, OpenCode, and the same Python plotting stack as the Python image. Call
-`preprint-af.write_paper` with the same payload. AgentField tracks every child call, so the
-parallel reasoner graph remains visible in the workflow DAG.
+The image bundles the static Go node, TeX Live, OpenCode, and the Python plotting stack. Its build
+compiles the paper template and renders Matplotlib fixtures as smoke tests. Mount the folder you
+want to write about and pass its in-container path as `folder_path`. AgentField tracks every child
+call, so the parallel reasoner graph remains visible in the workflow DAG.
 
 ---
 
@@ -268,11 +248,10 @@ REVIEW.md          honest unresolved problems at stop time
 
 ## Development
 
-`docs/ARCHITECTURE.md` is the binding module contract; `CLAUDE.md` has the working rules and the
-verified AgentField/OpenCode behaviors the code depends on.
+`docs/ARCHITECTURE.md` is the binding module contract.
 
 ```bash
-.venv/bin/python -m py_compile main.py src/preprint_af/reasoners/*.py
+cd go && make check                  # vet, tests, stripped build
 ```
 
 ---

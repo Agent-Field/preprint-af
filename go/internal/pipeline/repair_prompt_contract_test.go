@@ -2,7 +2,7 @@ package pipeline
 
 import "testing"
 
-func TestCompactRepairJSONMatchesPythonBytes(t *testing.T) {
+func TestCompactRepairJSONMatchesReferenceBytes(t *testing.T) {
 	critique := CritiqueBundle{
 		PersonaReviews: []PersonaReview{{
 			AcceptanceRisk: .25,
@@ -63,6 +63,6 @@ func TestCompactRepairJSONMatchesPythonBytes(t *testing.T) {
   ]
 }`
 	if got := prettyJSON(compactCritique(critique)); got != want {
-		t.Fatalf("repair critique JSON drifted from Python json.dumps bytes\n--- Go ---\n%s\n--- Python ---\n%s", got, want)
+		t.Fatalf("repair critique JSON drifted from reference bytes\n--- Go ---\n%s\n--- Golden ---\n%s", got, want)
 	}
 }

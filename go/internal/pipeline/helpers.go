@@ -100,7 +100,7 @@ func ProjectRoot() string {
 		return "."
 	}
 	for current := start; ; current = filepath.Dir(current) {
-		if pathExists(filepath.Join(current, "pyproject.toml")) || pathExists(filepath.Join(current, ".git")) {
+		if pathExists(filepath.Join(current, "go.mod")) || pathExists(filepath.Join(current, ".git")) {
 			return current
 		}
 		parent := filepath.Dir(current)

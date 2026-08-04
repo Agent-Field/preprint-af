@@ -14,8 +14,8 @@ check: vet test build
 fmt:
 	gofmt -w .
 
-run:
-	go run ./cmd/preprint-af
+run: build
+	cd .. && ./go/bin/preprint-af
 
 size: build
 	@ls -lh bin/preprint-af

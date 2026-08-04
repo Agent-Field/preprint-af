@@ -37,7 +37,7 @@ func requiredNames(schema map[string]any) []string {
 	return out
 }
 
-func TestPythonSchemaRequiredAndDefaults(t *testing.T) {
+func TestReferenceSchemaRequiredAndDefaults(t *testing.T) {
 	section := schemaMap[SectionSpec](t)
 	wantRequired := []string{"index", "slug", "heading", "beats", "establishes"}
 	if got := requiredNames(section); !reflect.DeepEqual(got, wantRequired) {
@@ -77,7 +77,7 @@ func TestPythonSchemaRequiredAndDefaults(t *testing.T) {
 	}
 }
 
-func TestPythonSchemaBoundsAndDescriptions(t *testing.T) {
+func TestReferenceSchemaBoundsAndDescriptions(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		field  map[string]any
