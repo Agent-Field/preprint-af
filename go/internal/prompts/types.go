@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 type Workspace struct {
@@ -157,14 +158,39 @@ func pythonRepr(v reflect.Value) string {
 }
 
 func pythonString(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
 	quote := "'"
 	if strings.Contains(s, "'") && !strings.Contains(s, "\"") {
 		quote = "\""
 	}
-	s = strings.ReplaceAll(s, quote, "\\"+quote)
-	s = strings.ReplaceAll(s, "\n", "\\n")
-	s = strings.ReplaceAll(s, "\r", "\\r")
-	s = strings.ReplaceAll(s, "\t", "\\t")
-	return quote + s + quote
+	var out strings.Builder
+	out.WriteString(quote)
+	for _, r := range s {
+		switch r {
+		case '\\':
+			out.WriteString(`\\`)
+		case '\n':
+			out.WriteString(`\n`)
+		case '\r':
+			out.WriteString(`\r`)
+		case '\t':
+			out.WriteString(`\t`)
+		default:
+			if string(r) == quote {
+				out.WriteByte('\\')
+				out.WriteRune(r)
+			} else if r < 0x20 || r == 0x7f {
+				fmt.Fprintf(&out, `\x%02x`, r)
+			} else if !unicode.IsPrint(r) {
+				if r <= 0xffff {
+					fmt.Fprintf(&out, `\u%04x`, r)
+				} else {
+					fmt.Fprintf(&out, `\U%08x`, r)
+				}
+			} else {
+				out.WriteRune(r)
+			}
+		}
+	}
+	out.WriteString(quote)
+	return out.String()
 }

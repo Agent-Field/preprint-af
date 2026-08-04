@@ -12,8 +12,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/root/.opencode/bin:${PATH}" \
-    AI_MODEL="openrouter/qwen/qwen3.7-flash" \
-    OPENCODE_MODEL="openrouter/qwen/qwen3.7-flash" \
+    AI_MODEL="openrouter/deepseek/deepseek-v4-pro" \
+    OPENCODE_MODEL="openrouter/deepseek/deepseek-v4-pro" \
     PORT=8001
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -25,7 +25,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     opencode --version && \
     latexmk -v >/dev/null && \
     pdflatex --version >/dev/null && \
-    python -c "import matplotlib, numpy, pandas"
+    python -c "import matplotlib, numpy, pandas; matplotlib.use('Agg'); import matplotlib.pyplot as plt; plt.plot([0,1],[0,1]); plt.savefig('/tmp/preprint-af-figure.png', dpi=300); plt.savefig('/tmp/preprint-af-figure.pdf')" && \
+    test -s /tmp/preprint-af-figure.png && \
+    test -s /tmp/preprint-af-figure.pdf && \
+    rm /tmp/preprint-af-figure.png /tmp/preprint-af-figure.pdf
 
 WORKDIR /app
 COPY --from=builder /out/preprint-af /usr/local/bin/preprint-af

@@ -12,11 +12,6 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
-	if !req.DryRun {
-		if err := runtimePreflight(); err != nil {
-			return nil, err
-		}
-	}
 	ws, err := callInto[Workspace](ctx, s, "intake_prepare_workspace", PrepareWorkspaceInput{FolderPath: req.FolderPath, Model: req.Model})
 	if err != nil {
 		return nil, err
@@ -118,7 +113,7 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 			persist()
 			break
 		}
-		applied, e := callInto[int](ctx, s, "repair_apply_repairs", ApplyRepairsInput{Workspace: ws, Plan: plan, Model: req.Model})
+		applied, e := callLocalInto[int](ctx, s, "repair_apply_repairs", ApplyRepairsInput{Workspace: ws, Plan: plan, Model: req.Model})
 		if e != nil {
 			return nil, e
 		}

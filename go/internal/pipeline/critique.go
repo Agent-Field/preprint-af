@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
@@ -180,13 +181,27 @@ func writeRoundArtifacts(ws Workspace, b CritiqueBundle) {
 	_, _ = WriteText(filepath.Join(dir, "narrative.md"), narr)
 	fid := fmt.Sprintf("# Fidelity audit (round %d)\n\n**Blocking:** %t  \n**Score:** %.3f  \n**Confident:** %t\n\n## Unsupported claims\n\n%s\n\n## Number mismatches\n\n%s\n\n## Citation issues\n\n%s\n", b.Round, b.Fidelity.Blocking, b.Fidelity.Score, b.Fidelity.Confident, bullets(b.Fidelity.UnsupportedClaims, "_None._"), bullets(b.Fidelity.NumberMismatches, "_None._"), bullets(b.Fidelity.CitationIssues, "_None._"))
 	_, _ = WriteText(filepath.Join(dir, "fidelity.md"), fid)
-	var slop strings.Builder
-	fmt.Fprintf(&slop, "# Slop lint (round %d)\n\n**Score:** %.3f  \n\n**Total violations:** %d\n", b.Round, b.Slop.Score, len(b.Slop.Violations))
-	for _, v := range b.Slop.Violations {
-		fmt.Fprintf(&slop, "\n- `%s:%d` [%s] — %s", v.File, v.Line, v.Rule, v.Excerpt)
+	grouped := map[string][]SlopViolation{}
+	for _, violation := range b.Slop.Violations {
+		grouped[violation.Rule] = append(grouped[violation.Rule], violation)
 	}
-	slop.WriteByte('\n')
-	_, _ = WriteText(filepath.Join(dir, "slop.md"), slop.String())
+	rules := make([]string, 0, len(grouped))
+	for rule := range grouped {
+		rules = append(rules, rule)
+	}
+	sort.Strings(rules)
+	parts := []string{
+		fmt.Sprintf("# Slop lint (round %d)\n", b.Round),
+		fmt.Sprintf("**Score:** %.3f  \n", b.Slop.Score),
+		fmt.Sprintf("**Total violations:** %d\n", len(b.Slop.Violations)),
+	}
+	for _, rule := range rules {
+		parts = append(parts, fmt.Sprintf("\n## %s (%d)\n", rule, len(grouped[rule])))
+		for _, violation := range grouped[rule] {
+			parts = append(parts, fmt.Sprintf("- `%s:%d` — %s", violation.File, violation.Line, mdCell(violation.Excerpt)))
+		}
+	}
+	_, _ = WriteText(filepath.Join(dir, "slop.md"), strings.Join(parts, "\n")+"\n")
 	_, _ = WriteText(filepath.Join(dir, "bundle.json"), prettyJSON(b))
 }
 

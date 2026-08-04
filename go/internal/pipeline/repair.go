@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync/atomic"
 
 	"github.com/Agent-Field/preprint-af/go/internal/prompts"
 	"golang.org/x/sync/errgroup"
@@ -26,14 +25,33 @@ type ApplyRepairsInput struct {
 }
 
 type compactReview struct {
-	Personas  []map[string]any `json:"personas"`
-	Narrative map[string]any   `json:"narrative"`
-	Fidelity  map[string]any   `json:"fidelity"`
+	Personas  []compactPersona `json:"personas"`
+	Narrative compactNarrative `json:"narrative"`
+	Fidelity  compactFidelity  `json:"fidelity"`
 	Slop      []string         `json:"slop"`
 }
 
+type compactPersona struct {
+	AcceptanceRisk float64        `json:"acceptance_risk"`
+	Verdict        string         `json:"verdict"`
+	Issues         []LocatedIssue `json:"issues"`
+}
+
+type compactNarrative struct {
+	TransitionIssues       []LocatedIssue `json:"transition_issues"`
+	PromiseAlignmentIssues []string       `json:"promise_alignment_issues"`
+	ArcAssessment          string         `json:"arc_assessment"`
+}
+
+type compactFidelity struct {
+	Blocking          bool     `json:"blocking"`
+	UnsupportedClaims []string `json:"unsupported_claims"`
+	NumberMismatches  []string `json:"number_mismatches"`
+	CitationIssues    []string `json:"citation_issues"`
+}
+
 func compactCritique(c CritiqueBundle) compactReview {
-	personas := make([]map[string]any, 0, len(c.PersonaReviews))
+	personas := make([]compactPersona, 0, len(c.PersonaReviews))
 	for _, pr := range c.PersonaReviews {
 		kept := []LocatedIssue{}
 		minors := 0
@@ -45,15 +63,27 @@ func compactCritique(c CritiqueBundle) compactReview {
 				minors++
 			}
 		}
-		personas = append(personas, map[string]any{"acceptance_risk": pr.AcceptanceRisk, "verdict": pr.Verdict, "issues": kept})
+		personas = append(personas, compactPersona{AcceptanceRisk: pr.AcceptanceRisk, Verdict: pr.Verdict, Issues: kept})
 	}
-	trans := c.Narrative.TransitionIssues
-	fid := map[string]any{"blocking": c.Fidelity.Blocking, "unsupported_claims": c.Fidelity.UnsupportedClaims, "number_mismatches": c.Fidelity.NumberMismatches, "citation_issues": c.Fidelity.CitationIssues}
 	slop := make([]string, 0, len(c.Slop.Violations))
 	for _, v := range c.Slop.Violations {
 		slop = append(slop, fmt.Sprintf("%s:%d %s — %s", v.File, v.Line, v.Rule, v.Excerpt))
 	}
-	return compactReview{Personas: personas, Narrative: map[string]any{"transition_issues": trans, "promise_alignment_issues": c.Narrative.PromiseAlignmentIssues, "arc_assessment": c.Narrative.ArcAssessment}, Fidelity: fid, Slop: slop}
+	return compactReview{
+		Personas: personas,
+		Narrative: compactNarrative{
+			TransitionIssues:       c.Narrative.TransitionIssues,
+			PromiseAlignmentIssues: c.Narrative.PromiseAlignmentIssues,
+			ArcAssessment:          c.Narrative.ArcAssessment,
+		},
+		Fidelity: compactFidelity{
+			Blocking:          c.Fidelity.Blocking,
+			UnsupportedClaims: c.Fidelity.UnsupportedClaims,
+			NumberMismatches:  c.Fidelity.NumberMismatches,
+			CitationIssues:    c.Fidelity.CitationIssues,
+		},
+		Slop: slop,
+	}
 }
 
 func critiqueDirty(c CritiqueBundle) bool {
@@ -198,29 +228,11 @@ func changedMatches(changed []string, patterns []string) bool {
 	return false
 }
 
-func (s *Service) runRepair(ctx context.Context, ws Workspace, t RepairTask, model *string) (bool, error) {
-	files, patterns := resolveRepair(t, ws)
-	before := GitChangedFiles(ws.Root)
+func (s *Service) runRepair(ctx context.Context, ws Workspace, t RepairTask, model *string) bool {
+	files, _ := resolveRepair(t, ws)
 	prompt := prompts.RepairTaskPrompt(files, t.Instructions)
 	_, hr, err := harnessInto[WorkerResult](ctx, s, prompt, stringValue(model), ws.Root, ws.Root)
-	if err != nil {
-		return false, err
-	}
-	if hr == nil || hr.IsError {
-		return false, nil
-	}
-	after := GitChangedFiles(ws.Root)
-	old := map[string]bool{}
-	for _, x := range before {
-		old[x] = true
-	}
-	fresh := []string{}
-	for _, x := range after {
-		if !old[x] {
-			fresh = append(fresh, x)
-		}
-	}
-	return changedMatches(fresh, patterns), nil
+	return err == nil && hr != nil && !hr.IsError
 }
 
 func (s *Service) ApplyRepairs(ctx context.Context, in ApplyRepairsInput) (any, error) {
@@ -236,25 +248,51 @@ func (s *Service) ApplyRepairs(ctx context.Context, in ApplyRepairsInput) (any, 
 			rest = append(rest, t)
 		}
 	}
-	var applied int32
+	applied := 0
 	if len(front) > 0 {
-		ok, _ := s.runRepair(ctx, in.Workspace, front[0], in.Model)
-		if ok {
-			atomic.AddInt32(&applied, 1)
+		task := front[0]
+		before := GitChangedFiles(in.Workspace.Root)
+		harnessOK := s.runRepair(ctx, in.Workspace, task, in.Model)
+		after := GitChangedFiles(in.Workspace.Root)
+		_, patterns := resolveRepair(task, in.Workspace)
+		if harnessOK && changedMatches(newChangedFiles(before, after), patterns) {
+			applied++
 		}
 	}
-	g, gctx := errgroup.WithContext(ctx)
-	for _, t := range rest {
-		t := t
-		g.Go(func() error {
-			ok, _ := s.runRepair(gctx, in.Workspace, t, in.Model)
-			if ok {
-				atomic.AddInt32(&applied, 1)
+	if len(rest) > 0 {
+		before := GitChangedFiles(in.Workspace.Root)
+		results := make([]bool, len(rest))
+		var g errgroup.Group
+		for i, task := range rest {
+			i, task := i, task
+			g.Go(func() error {
+				results[i] = s.runRepair(ctx, in.Workspace, task, in.Model)
+				return nil
+			})
+		}
+		_ = g.Wait()
+		newly := newChangedFiles(before, GitChangedFiles(in.Workspace.Root))
+		for i, task := range rest {
+			_, patterns := resolveRepair(task, in.Workspace)
+			if results[i] && changedMatches(newly, patterns) {
+				applied++
 			}
-			return nil
-		})
+		}
 	}
-	_ = g.Wait()
 	GitSnapshot(in.Workspace.Root, fmt.Sprintf("repairs applied (%d tasks)", applied))
-	return int(applied), nil
+	return applied, nil
+}
+
+func newChangedFiles(before, after []string) []string {
+	old := make(map[string]bool, len(before))
+	for _, path := range before {
+		old[path] = true
+	}
+	newly := make([]string, 0, len(after))
+	for _, path := range after {
+		if !old[path] {
+			newly = append(newly, path)
+		}
+	}
+	return newly
 }

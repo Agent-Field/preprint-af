@@ -2,11 +2,11 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/Agent-Field/preprint-af/go/internal/prompts"
 	"golang.org/x/sync/errgroup"
@@ -23,16 +23,16 @@ type GenerateFramesInput struct {
 	Model       *string   `json:"model"`
 }
 type JudgeFrameInput struct {
-	Frame          StoryFrame `json:"frame"`
-	EvidenceDigest string     `json:"evidence_digest"`
-	Persona        string     `json:"persona"`
-	TargetVenue    *string    `json:"target_venue"`
-	Model          *string    `json:"model"`
+	Frame          map[string]any `json:"frame"`
+	EvidenceDigest string         `json:"evidence_digest"`
+	Persona        string         `json:"persona"`
+	TargetVenue    *string        `json:"target_venue"`
+	Model          *string        `json:"model"`
 }
 type ScanNoveltyInput struct {
-	Workspace Workspace `json:"workspace"`
-	FrameSet  FrameSet  `json:"frame_set"`
-	Model     *string   `json:"model"`
+	Workspace Workspace      `json:"workspace"`
+	FrameSet  map[string]any `json:"frame_set"`
+	Model     *string        `json:"model"`
 }
 type RunPositioningInput struct {
 	Workspace   Workspace `json:"workspace"`
@@ -42,11 +42,54 @@ type RunPositioningInput struct {
 	Model       *string   `json:"model"`
 }
 
+func (in *RunPositioningInput) UnmarshalJSON(data []byte) error {
+	type plain RunPositioningInput
+	seeded := plain{AllowWeb: true}
+	if err := json.Unmarshal(data, &seeded); err != nil {
+		return err
+	}
+	*in = RunPositioningInput(seeded)
+	return nil
+}
+
 func promptWorkspace(ws Workspace) prompts.Workspace {
 	return prompts.Workspace{Root: ws.Root, InputDir: ws.InputDir, InputFiles: ws.InputFiles, EvidencePath: ws.EvidencePath, HasExistingDraft: ws.HasExistingDraft}
 }
 func promptFrame(f StoryFrame) prompts.StoryFrame {
 	return prompts.StoryFrame{Name: f.Name, Angle: f.Angle, CentralThesis: f.CentralThesis, Title: f.Title, MiniAbstract: f.MiniAbstract, ContributionOrder: f.ContributionOrder, FigureEmphasis: f.FigureEmphasis, WhyItCouldWin: f.WhyItCouldWin, RiskOfFailure: f.RiskOfFailure, EvidenceAlignment: f.EvidenceAlignment, ImpactPotential: f.ImpactPotential}
+}
+
+func frameMap(f StoryFrame) map[string]any {
+	return map[string]any{
+		"name": f.Name, "angle": f.Angle, "central_thesis": f.CentralThesis,
+		"title": f.Title, "mini_abstract": f.MiniAbstract,
+		"contribution_order": f.ContributionOrder, "figure_emphasis": f.FigureEmphasis,
+		"why_it_could_win": f.WhyItCouldWin, "risk_of_failure": f.RiskOfFailure,
+		"evidence_alignment": f.EvidenceAlignment, "impact_potential": f.ImpactPotential,
+	}
+}
+
+// pythonDictString mirrors str(frame.get(key, fallback)) for the scalar values
+// consumed by the original Python reasoner.
+func pythonDictString(values map[string]any, key, fallback string) string {
+	value, ok := values[key]
+	if !ok {
+		return fallback
+	}
+	if value == nil {
+		return "None"
+	}
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case bool:
+		if typed {
+			return "True"
+		}
+		return "False"
+	default:
+		return fmt.Sprint(typed)
+	}
 }
 func promptJudgment(j FrameJudgment) prompts.FrameJudgment {
 	return prompts.FrameJudgment{FrameName: j.FrameName, Persona: j.Persona, Comprehension: j.Comprehension, Excitement: j.Excitement, Credibility: j.Credibility, Naturalness: j.Naturalness, Concerns: j.Concerns, Confident: j.Confident}
@@ -63,23 +106,38 @@ func (s *Service) GenerateFrames(ctx context.Context, in GenerateFramesInput) (a
 }
 
 func (s *Service) JudgeFrame(ctx context.Context, in JudgeFrameInput) (any, error) {
-	system, user := prompts.JudgeFramePrompts(promptFrame(in.Frame), in.EvidenceDigest, in.Persona, stringValue(in.TargetVenue))
+	frame := prompts.StoryFrame{
+		Name:          pythonDictString(in.Frame, "name", "unnamed frame"),
+		Angle:         pythonDictString(in.Frame, "angle", ""),
+		CentralThesis: pythonDictString(in.Frame, "central_thesis", ""),
+		Title:         pythonDictString(in.Frame, "title", ""),
+		MiniAbstract:  pythonDictString(in.Frame, "mini_abstract", ""),
+	}
+	system, user := prompts.JudgeFramePrompts(frame, in.EvidenceDigest, in.Persona, stringValue(in.TargetVenue))
 	out, err := aiInto[FrameJudgment](ctx, s, system, user, stringValue(in.Model))
 	if err != nil {
-		return FrameJudgment{FrameName: in.Frame.Name, Persona: in.Persona, Concerns: []string{}}, nil
+		return FrameJudgment{FrameName: frame.Name, Persona: in.Persona, Concerns: []string{}}, nil
 	}
 	return out, nil
 }
 
 func (s *Service) ScanNovelty(ctx context.Context, in ScanNoveltyInput) (any, error) {
-	frames := make([]prompts.StoryFrame, len(in.FrameSet.Frames))
-	for i, f := range in.FrameSet.Frames {
-		frames[i] = promptFrame(f)
+	rawFrames, _ := in.FrameSet["frames"].([]any)
+	frames := make([]prompts.StoryFrame, 0, len(rawFrames))
+	for _, raw := range rawFrames {
+		f, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		frames = append(frames, prompts.StoryFrame{
+			Title:         strings.TrimSpace(pythonDictString(f, "title", "")),
+			CentralThesis: strings.TrimSpace(pythonDictString(f, "central_thesis", "")),
+		})
 	}
 	prompt := prompts.NoveltyScanPrompt(in.Workspace.Root, frames)
 	out, hr, err := harnessInto[NoveltyScan](ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
 	scan := filepath.Join(in.Workspace.Root, "POSITIONING_SCAN.md")
-	if err != nil || hr == nil || hr.IsError || !FileExists(scan) {
+	if err != nil || hr == nil || hr.IsError || hr.Parsed == nil || !FileExists(scan) {
 		return NewNoveltyScan(), nil
 	}
 	return out, nil
@@ -100,16 +158,15 @@ func (s *Service) RunPositioning(ctx context.Context, in RunPositioningInput) (a
 	digest := ReadText(in.Workspace.EvidencePath, digestCap)
 	judgments := make([]FrameJudgment, len(frames)*len(prompts.PositioningPersonas))
 	var novelty NoveltyScan
-	var mu sync.Mutex
-	g, gctx := errgroup.WithContext(ctx)
+	var g errgroup.Group
 	for fi, f := range frames {
 		for pi, p := range prompts.PositioningPersonas {
 			idx := fi*len(prompts.PositioningPersonas) + pi
 			f, p := f, p
 			g.Go(func() error {
-				j, e := callInto[FrameJudgment](gctx, s, "positioning_judge_frame", JudgeFrameInput{Frame: f, EvidenceDigest: digest, Persona: p, TargetVenue: in.TargetVenue, Model: in.Model})
+				j, e := callInto[FrameJudgment](ctx, s, "positioning_judge_frame", JudgeFrameInput{Frame: frameMap(f), EvidenceDigest: digest, Persona: p, TargetVenue: in.TargetVenue, Model: in.Model})
 				if e != nil {
-					j = FrameJudgment{FrameName: f.Name, Persona: p, Concerns: []string{}}
+					return e
 				}
 				judgments[idx] = j
 				return nil
@@ -118,20 +175,24 @@ func (s *Service) RunPositioning(ctx context.Context, in RunPositioningInput) (a
 	}
 	if in.AllowWeb {
 		g.Go(func() error {
-			v, e := callInto[NoveltyScan](gctx, s, "positioning_scan_novelty", ScanNoveltyInput{Workspace: in.Workspace, FrameSet: FrameSet{Frames: frames, GenerationRationale: fs.GenerationRationale, Confident: fs.Confident}, Model: in.Model})
-			mu.Lock()
-			defer mu.Unlock()
-			if e == nil {
-				novelty = v
-			} else {
-				novelty = NewNoveltyScan()
+			rawFrames := make([]any, len(frames))
+			for i, f := range frames {
+				rawFrames[i] = frameMap(f)
 			}
+			frameSet := map[string]any{"frames": rawFrames, "generation_rationale": fs.GenerationRationale, "confident": fs.Confident}
+			v, e := callInto[NoveltyScan](ctx, s, "positioning_scan_novelty", ScanNoveltyInput{Workspace: in.Workspace, FrameSet: frameSet, Model: in.Model})
+			if e != nil {
+				return e
+			}
+			novelty = v
 			return nil
 		})
 	} else {
 		novelty = NewNoveltyScan()
 	}
-	_ = g.Wait()
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
 	pf := make([]prompts.StoryFrame, len(frames))
 	for i, f := range frames {
 		pf[i] = promptFrame(f)

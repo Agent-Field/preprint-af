@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/Agent-Field/agentfield/sdk/go/agent"
 	"github.com/Agent-Field/agentfield/sdk/go/ai"
@@ -12,7 +11,7 @@ import (
 )
 
 const (
-	DefaultModel = "openrouter/qwen/qwen3.7-flash"
+	DefaultModel = "openrouter/deepseek/deepseek-v4-pro"
 	Description  = "Turns a research folder into a submission-ready scientific paper: evidence ledger, positioning tournament, parallel section/figure drafting, compile gate, and a convergence-driven critique and repair loop."
 )
 
@@ -30,7 +29,7 @@ func Build() (*Node, error) {
 	key := os.Getenv("OPENROUTER_API_KEY")
 
 	cfg := agent.Config{
-		NodeID:        envOr("AGENT_NODE_ID", "preprint-af-go"),
+		NodeID:        envOr("AGENT_NODE_ID", "preprint-af"),
 		Version:       "2.0.0",
 		AgentFieldURL: server,
 		ListenAddress: ":" + port,
@@ -43,18 +42,15 @@ func Build() (*Node, error) {
 			Model:          harnessModel,
 			MaxTurns:       envInt("HARNESS_MAX_TURNS", 40),
 			PermissionMode: envOr("HARNESS_PERMISSION_MODE", "auto"),
-			Timeout:        envInt("AGENTFIELD_HARNESS_TIMEOUT_SECONDS", 1800),
 			Env:            map[string]string{"OPENROUTER_API_KEY": key},
 		},
 	}
 	if key != "" {
 		cfg.AIConfig = &ai.Config{
-			APIKey:    key,
-			BaseURL:   "https://openrouter.ai/api/v1",
-			Model:     strings.TrimPrefix(model, "openrouter/"),
-			MaxTokens: 16384,
-			Timeout:   10 * time.Minute,
-			SiteName:  "preprint-af",
+			APIKey:   key,
+			BaseURL:  "https://openrouter.ai/api/v1",
+			Model:    strings.TrimPrefix(model, "openrouter/"),
+			SiteName: "preprint-af",
 		}
 	}
 	app, err := agent.New(cfg)

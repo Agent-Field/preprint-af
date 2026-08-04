@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	DefaultModel = "openrouter/qwen/qwen3.7-flash"
+	DefaultModel = "openrouter/deepseek/deepseek-v4-pro"
 	Slug         = "preprint-af"
 	maxFileBytes = int64(100 * 1024 * 1024)
 	inputFileCap = 400

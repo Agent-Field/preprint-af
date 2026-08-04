@@ -27,7 +27,7 @@ func (s *Service) PrepareWorkspace(_ context.Context, in PrepareWorkspaceInput) 
 func (s *Service) BuildEvidenceLedger(ctx context.Context, in BuildEvidenceInput) (any, error) {
 	prompt := prompts.EvidencePrompt(promptWorkspace(in.Workspace), FigurePython())
 	summary, hr, err := harnessInto[EvidenceSummary](ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
-	if err != nil || hr == nil || hr.IsError || !FileExists(in.Workspace.EvidencePath) || len(ReadText(in.Workspace.EvidencePath, 0)) < 500 {
+	if err != nil || hr == nil || hr.IsError || hr.Parsed == nil || !FileExists(in.Workspace.EvidencePath) || len(ReadText(in.Workspace.EvidencePath, 0)) < 500 {
 		reason := "EVIDENCE.md missing, too small, or unparsed"
 		if err != nil {
 			reason = err.Error()

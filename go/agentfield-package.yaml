@@ -1,5 +1,5 @@
 config_version: v1
-name: preprint-af-go
+name: preprint-af
 version: 2.0.0
 description: Exact native Go port of preprint-af
 author: Agent-Field
@@ -11,7 +11,7 @@ entrypoint:
   healthcheck: /health
 
 agent_node:
-  node_id: preprint-af-go
+  node_id: preprint-af
   default_port: 8001
 
 user_environment:
@@ -26,13 +26,19 @@ user_environment:
       default: http://localhost:8080
     - name: AI_MODEL
       description: Direct reasoning model
-      default: openrouter/qwen/qwen3.7-flash
+      default: openrouter/deepseek/deepseek-v4-pro
     - name: OPENCODE_MODEL
       description: OpenCode worker model
-      default: openrouter/qwen/qwen3.7-flash
+      default: openrouter/deepseek/deepseek-v4-pro
     - name: HARNESS_MAX_TURNS
       description: Maximum OpenCode turns per worker
       default: "40"
+    - name: HARNESS_MAX_BUDGET_USD
+      description: Maximum OpenCode budget per worker
+      default: "5.00"
+    - name: OPENCODE_MAX_CONCURRENT
+      description: Maximum concurrent OpenCode workers
+      default: "10"
     - name: AGENTFIELD_HARNESS_TIMEOUT_SECONDS
       description: Harness timeout in seconds
       default: "1800"

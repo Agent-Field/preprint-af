@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -34,6 +35,26 @@ type RunBuildInput struct {
 	Blueprint Blueprint `json:"blueprint"`
 	AllowWeb  bool      `json:"allow_web"`
 	Model     *string   `json:"model"`
+}
+
+func (in *BuildBibliographyInput) UnmarshalJSON(data []byte) error {
+	type plain BuildBibliographyInput
+	seeded := plain{AllowWeb: true}
+	if err := json.Unmarshal(data, &seeded); err != nil {
+		return err
+	}
+	*in = BuildBibliographyInput(seeded)
+	return nil
+}
+
+func (in *RunBuildInput) UnmarshalJSON(data []byte) error {
+	type plain RunBuildInput
+	seeded := plain{AllowWeb: true}
+	if err := json.Unmarshal(data, &seeded); err != nil {
+		return err
+	}
+	*in = RunBuildInput(seeded)
+	return nil
 }
 
 func pSection(v SectionSpec) prompts.SectionSpec {

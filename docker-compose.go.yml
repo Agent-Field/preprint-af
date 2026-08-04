@@ -1,23 +1,44 @@
 services:
-  preprint-af-go:
+  control-plane:
+    image: agentfield/control-plane:latest
+    environment:
+      AGENTFIELD_STORAGE_MODE: local
+      AGENTFIELD_HTTP_ADDR: 0.0.0.0:8080
+    ports:
+      - "${AGENTFIELD_HTTP_PORT:-8080}:8080"
+    volumes:
+      - agentfield-data:/data
+
+  preprint-af:
     build:
       context: .
       dockerfile: go/Dockerfile
     environment:
-      AGENTFIELD_SERVER: ${AGENTFIELD_SERVER:-http://host.docker.internal:8080}
-      AGENT_CALLBACK_URL: ${AGENT_CALLBACK_URL:-http://localhost:8011}
-      AGENT_NODE_ID: preprint-af-go
+      AGENTFIELD_SERVER: http://control-plane:8080
+      AGENT_CALLBACK_URL: http://preprint-af:8001
+      AGENT_NODE_ID: preprint-af
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      AI_MODEL: ${AI_MODEL:-openrouter/qwen/qwen3.7-flash}
-      OPENCODE_MODEL: ${OPENCODE_MODEL:-openrouter/qwen/qwen3.7-flash}
+      AGENTFIELD_OPENROUTER_SITE_URL: ${AGENTFIELD_OPENROUTER_SITE_URL:-https://agentfield.ai}
+      AGENTFIELD_OPENROUTER_APP_NAME: ${AGENTFIELD_OPENROUTER_APP_NAME:-AgentField AI}
+      OR_SITE_URL: ${OR_SITE_URL:-https://agentfield.ai}
+      OR_APP_NAME: ${OR_APP_NAME:-AgentField AI}
+      AI_MODEL: ${AI_MODEL:-openrouter/deepseek/deepseek-v4-pro}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-openrouter/deepseek/deepseek-v4-pro}
       AGENTFIELD_HARNESS_TIMEOUT_SECONDS: ${AGENTFIELD_HARNESS_TIMEOUT_SECONDS:-1800}
       OPENCODE_MAX_CONCURRENT: ${OPENCODE_MAX_CONCURRENT:-10}
       HARNESS_MAX_TURNS: ${HARNESS_MAX_TURNS:-40}
+      HARNESS_MAX_BUDGET_USD: ${HARNESS_MAX_BUDGET_USD:-5.00}
       HARNESS_PERMISSION_MODE: ${HARNESS_PERMISSION_MODE:-auto}
       PORT: 8001
     ports:
-      - "${AGENT_NODE_GO_PORT:-8011}:8001"
+      - "${AGENT_NODE_PORT:-8001}:8001"
     volumes:
       - ./.tmp:/app/.tmp
       - ${HOST_PAPERS_ROOT:-/Users/santoshkumar/Documents/agentfield/papers}:/Users/santoshkumar/Documents/agentfield/papers:ro
+    depends_on:
+      control-plane:
+        condition: service_started
     restart: on-failure
+
+volumes:
+  agentfield-data:

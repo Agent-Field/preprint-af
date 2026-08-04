@@ -1,6 +1,7 @@
 package prompts
 
 import (
+	"fmt"
 	"math"
 	"path/filepath"
 	"strconv"
@@ -8,10 +9,7 @@ import (
 )
 
 func SectionPrompt(_ Workspace, spec SectionSpec, prev, next *SectionSpec) string {
-	nn := strconv.Itoa(spec.Index)
-	if spec.Index < 10 {
-		nn = "0" + nn
-	}
+	nn := fmt.Sprintf("%02d", spec.Index)
 	relpath := "paper/sections/" + nn + "_" + spec.Slug + ".tex"
 	beats := "  (none specified)"
 	if len(spec.Beats) > 0 {
@@ -109,7 +107,7 @@ func FigurePrompt(workspace Workspace, spec FigureSpec, figurePython string) str
 	if len(spec.DataSources) > 0 {
 		lines := make([]string, len(spec.DataSources))
 		for i, source := range spec.DataSources {
-			lines[i] = "  - " + source + "  (absolute path: " + filepath.Join(workspace.InputDir, source) + ")"
+			lines[i] = "  - " + source + "  (absolute path: " + pythonPathJoin(workspace.InputDir, source) + ")"
 		}
 		data = "Load these REAL data files (do not fabricate data):\n" + strings.Join(lines, "\n")
 	}
@@ -147,6 +145,13 @@ Return a WorkerResult: name = "figure:{0}", status = "done" once the pdf exists,
 files = ["paper/figures/{0}.py", "paper/figures/{0}.pdf", "paper/figures/{0}.png"].
 
 Do the work now: read EVIDENCE.md, write the script, run it, verify the pdf.`, spec.Slug, spec.Purpose, caption, data, figurePython)
+}
+
+func pythonPathJoin(base, child string) string {
+	if filepath.IsAbs(child) {
+		return child
+	}
+	return strings.TrimSuffix(base, string(filepath.Separator)) + string(filepath.Separator) + child
 }
 
 func BibliographyPrompt(_ Workspace, citationNeeds []string, allowWeb bool) string {

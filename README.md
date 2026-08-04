@@ -205,27 +205,27 @@ as `folder_path`.
 
 ### Native Go node
 
-The `go/` module is a behavior-preserving port: the same 19 reasoners, prompt text, schemas,
+The `go/` module is an exact port: the same 19 reasoners, prompt text, schemas,
 parallel fan-outs, compile gates, and convergence rules, packaged as one stripped static agent
-binary. It defaults to `openrouter/qwen/qwen3.7-flash` for direct reasoning and OpenCode workers.
+binary. It defaults to `openrouter/deepseek/deepseek-v4-pro` for direct reasoning and OpenCode workers.
 Native `af` runs use host `opencode`, `latexmk`, and `pdflatex`; use Docker for a self-contained
 runtime. Set `FIGURE_PYTHON` when figure scripts need a separate scientific Python environment.
 
 ```bash
 cd go
 make check                           # vet, tests, stripped build
-OPENROUTER_API_KEY=... make run      # registers preprint-af-go on :8001
+OPENROUTER_API_KEY=... make run      # registers preprint-af on :8001
 ```
 
-To run it beside the Python node, start the normal stack first and then:
+To run the Go stack instead of the Python stack:
 
 ```bash
 docker compose -f docker-compose.go.yml up --build
 ```
 
-Call `preprint-af-go.write_paper` with the same payload. The Go port uses tracked local
-AgentField calls for same-node composition, so every parallel child remains visible in the
-workflow DAG without routing through an extra HTTP hop.
+The image bundles TeX Live, OpenCode, and the same Python plotting stack as the Python image. Call
+`preprint-af.write_paper` with the same payload. AgentField tracks every child call, so the
+parallel reasoner graph remains visible in the workflow DAG.
 
 ---
 

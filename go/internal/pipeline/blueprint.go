@@ -72,20 +72,7 @@ func (s *Service) DesignBlueprint(ctx context.Context, in DesignBlueprintInput) 
 	user := prompts.BlueprintUserPrompt(evidence, positioning, in.Workspace.InputFiles, stringValue(in.TargetVenue))
 	bp, err := aiInto[Blueprint](ctx, s, system, user, stringValue(in.Model))
 	if err != nil {
-		// Large nested blueprints exceed the reliable structured-output path of
-		// some OpenRouter models. Escalate only the failed call to the existing
-		// file-backed harness, retaining the exact authored system/user text.
-		var hrErr error
-		var hrResult any
-		fallback, hr, fallbackErr := harnessInto[Blueprint](ctx, s, system+"\n\n"+user, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
-		if hr != nil && hr.IsError {
-			hrErr = fmt.Errorf("%s", hr.ErrorMessage)
-			hrResult = hr.FailureType
-		}
-		if fallbackErr != nil || hrErr != nil {
-			return nil, fmt.Errorf("Blueprint design failed; direct error: %v; harness error: %v %v %v", err, fallbackErr, hrErr, hrResult)
-		}
-		bp = fallback
+		return nil, fmt.Errorf("Blueprint design failed; a paper cannot proceed without a blueprint: %w", err)
 	}
 	if len(bp.Sections) < 4 {
 		return nil, fmt.Errorf("Blueprint produced only %d sections (need >= 4); aborting run", len(bp.Sections))

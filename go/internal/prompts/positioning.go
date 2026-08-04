@@ -39,10 +39,6 @@ Hard rules: do NOT invent any number, dataset, metric, or result that is not alr
 
 func JudgeFramePrompts(frame StoryFrame, evidenceDigest, persona, targetVenue string) (system, user string) {
 	system = "You are simulating ONE specific senior scientific reader judging a single candidate framing of a paper. You see the frame's concrete title, its central thesis, and its ~120-word mini-abstract, plus a digest of the paper's evidence. Score it honestly on four axes and raise concrete concerns. Naturalness matters as much as content: a real senior scientist writes plainly. Penalize colon-stacking (Title: Subtitle: Sub-subtitle), keyword packing, hype adjectives (novel, powerful, comprehensive, groundbreaking, seamless), generic 'novel framework' phrasing, and symmetric slogan rhythm that reads machine-generated."
-	name := frame.Name
-	if name == "" {
-		name = "unnamed frame"
-	}
 	user = fill(`You are {0}.
 Target venue: {1}
 
@@ -64,7 +60,7 @@ Score each axis in [0,1] from your persona's stance:
 - credibility: is every claim in the title and abstract backed by the evidence digest, with no overclaim?
 - naturalness: would a senior human scientist actually write this title and abstract, or does it read as generated?
 
-List CONCRETE concerns: quote the exact word, phrase, or claim that triggers each concern. No generic complaints. Set §confident§ honestly.`, persona, specified(targetVenue), name, frame.Angle, frame.Title, frame.CentralThesis, frame.MiniAbstract, evidenceDigest)
+List CONCRETE concerns: quote the exact word, phrase, or claim that triggers each concern. No generic complaints. Set §confident§ honestly.`, persona, specified(targetVenue), frame.Name, frame.Angle, frame.Title, frame.CentralThesis, frame.MiniAbstract, evidenceDigest)
 	return
 }
 
