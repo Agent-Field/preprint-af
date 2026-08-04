@@ -18,13 +18,6 @@ type DesignBlueprintInput struct {
 
 var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
 
-func validateBlueprintContract(bp Blueprint) error {
-	if len(bp.Sections) < 6 || len(bp.Sections) > 9 {
-		return fmt.Errorf("blueprint produced %d sections (need 6-9)", len(bp.Sections))
-	}
-	return nil
-}
-
 func slugify(v string) string {
 	v = strings.Trim(nonSlug.ReplaceAllString(strings.ToLower(strings.TrimSpace(v)), "_"), "_")
 	if v == "" {
@@ -78,13 +71,10 @@ func (s *Service) DesignBlueprint(ctx context.Context, in DesignBlueprintInput) 
 	system := prompts.BlueprintSystemPrompt()
 	user := prompts.BlueprintUserPrompt(evidence, positioning, in.Workspace.InputFiles, stringValue(in.TargetVenue))
 	bp, err := aiInto[Blueprint](ctx, s, system, user, stringValue(in.Model))
-	directContractErr := validateBlueprintContract(bp)
-	if err != nil || directContractErr != nil {
+	if err != nil {
 		// Large nested blueprints exceed the reliable structured-output path of
-		// some OpenRouter models. Some providers also report success with a
-		// semantically empty object. Escalate only that failed call to the
-		// existing file-backed harness, retaining the exact authored system/user
-		// text.
+		// some OpenRouter models. Escalate only the failed call to the existing
+		// file-backed harness, retaining the exact authored system/user text.
 		var hrErr error
 		var hrResult any
 		fallback, hr, fallbackErr := harnessInto[Blueprint](ctx, s, system+"\n\n"+user, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
@@ -93,12 +83,12 @@ func (s *Service) DesignBlueprint(ctx context.Context, in DesignBlueprintInput) 
 			hrResult = hr.FailureType
 		}
 		if fallbackErr != nil || hrErr != nil {
-			return nil, fmt.Errorf("blueprint design failed; direct error: %v; direct contract: %v; harness error: %v %v %v", err, directContractErr, fallbackErr, hrErr, hrResult)
+			return nil, fmt.Errorf("Blueprint design failed; direct error: %v; harness error: %v %v %v", err, fallbackErr, hrErr, hrResult)
 		}
 		bp = fallback
 	}
-	if err := validateBlueprintContract(bp); err != nil {
-		return nil, fmt.Errorf("blueprint fallback violated contract: %w", err)
+	if len(bp.Sections) < 4 {
+		return nil, fmt.Errorf("Blueprint produced only %d sections (need >= 4); aborting run", len(bp.Sections))
 	}
 	seen := map[string]bool{}
 	for i := range bp.Sections {

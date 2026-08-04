@@ -12,16 +12,12 @@ const maxLatexAttempts = 3
 
 type CompilePaperInput struct {
 	Workspace Workspace `json:"workspace"`
-	ShowTODOs bool      `json:"show_todos"`
 	Model     *string   `json:"model"`
 }
 
 func (s *Service) CompilePaper(ctx context.Context, in CompilePaperInput) (any, error) {
 	last := ""
 	for attempt := 1; attempt <= maxLatexAttempts; attempt++ {
-		if err := ApplyPaperPresentationPolicy(in.Workspace, in.ShowTODOs); err != nil {
-			return CompileReport{Success: false, Attempts: attempt, ErrorExcerpt: err.Error()}, nil
-		}
 		ok, pdf, excerpt := RunLatexmk(in.Workspace.PaperDir)
 		if ok {
 			GitSnapshot(in.Workspace.Root, fmt.Sprintf("P4 compile success (attempt %d)", attempt))

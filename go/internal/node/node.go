@@ -52,8 +52,8 @@ func Build() (*Node, error) {
 			APIKey:    key,
 			BaseURL:   "https://openrouter.ai/api/v1",
 			Model:     strings.TrimPrefix(model, "openrouter/"),
-			MaxTokens: envInt("AI_MAX_TOKENS", 8192),
-			Timeout:   time.Duration(envInt("AI_TIMEOUT_SECONDS", 300)) * time.Second,
+			MaxTokens: 16384,
+			Timeout:   10 * time.Minute,
 			SiteName:  "preprint-af",
 		}
 	}

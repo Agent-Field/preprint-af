@@ -23,9 +23,9 @@ func runtimePreflight() error {
 	}
 	python := FigurePython()
 	if resolved, err := exec.LookPath(python); err == nil {
-		probe := exec.Command(resolved, "-c", "import matplotlib, numpy, pandas, sklearn")
+		probe := exec.Command(resolved, "-c", "import matplotlib, numpy, pandas")
 		if err := probe.Run(); err != nil {
-			fmt.Println("[preflight] warning: figure Python lacks matplotlib/numpy/pandas/scikit-learn; generated figure scripts may fail (the Docker image includes these packages)")
+			fmt.Println("[preflight] warning: python3 lacks matplotlib/numpy/pandas; existing figures still work, but figure scripts may need their own environment (the Docker image includes these packages)")
 		}
 	} else {
 		fmt.Println("[preflight] warning: python3 not found; existing figures still work, but Python figure scripts cannot run (the Docker image includes Python)")

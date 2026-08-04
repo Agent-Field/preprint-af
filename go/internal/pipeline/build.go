@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/Agent-Field/preprint-af/go/internal/prompts"
 	"golang.org/x/sync/errgroup"
@@ -54,15 +55,11 @@ func (s *Service) WriteSection(ctx context.Context, in WriteSectionInput) (any, 
 		next = &v
 	}
 	prompt := prompts.SectionPrompt(promptWorkspace(in.Workspace), spec, prev, next)
+	out, hr, err := harnessInto[WorkerResult](ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
 	filename := fmt.Sprintf("%02d_%s.tex", in.Section.Index, in.Section.Slug)
 	abs := filepath.Join(in.Workspace.SectionsDir, filename)
 	rel := "paper/sections/" + filename
 	name := "section:" + in.Section.Slug
-	hr, err := harnessArtifact(ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
-	if err == nil && hr != nil && !hr.IsError && (!FileExists(abs) || len(ReadText(abs, 0)) < 300) {
-		retry := prompt + "\n\nVERIFICATION RETRY: Your previous attempt did not create a substantive " + rel + " file. Use filesystem tools now, write that exact file with at least 300 characters under the same evidence and citation constraints, verify it exists, then finish. Do not merely describe the section."
-		hr, err = harnessArtifact(ctx, s, retry, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
-	}
 	if err != nil || !FileExists(abs) || len(ReadText(abs, 0)) < 300 {
 		reason := "section file missing or too small (<300 chars)"
 		if err != nil {
@@ -72,22 +69,48 @@ func (s *Service) WriteSection(ctx context.Context, in WriteSectionInput) (any, 
 		}
 		return WorkerResult{Name: name, Status: "failed", Summary: reason, Files: []string{}}, nil
 	}
-	summary := "Wrote " + rel
+	summary := out.Summary
+	if summary == "" {
+		summary = "Wrote " + rel
+	}
 	return WorkerResult{Name: name, Status: "done", Summary: summary, Files: []string{rel}}, nil
 }
 
 func (s *Service) BuildFigure(ctx context.Context, in BuildFigureInput) (any, error) {
-	return s.buildFigureWithVisualQA(ctx, in)
+	f := in.Figure
+	name := "figure:" + f.Slug
+	if !f.Buildable {
+		needs := "author data"
+		if len(f.DataSources) > 0 {
+			needs = strings.Join(f.DataSources, ", ")
+		}
+		brief := fmt.Sprintf("Figure %s: %s — needs %s", f.Slug, f.Purpose, needs)
+		AppendTODOs(in.Workspace.TODOPath, []string{brief})
+		return WorkerResult{Name: name, Status: "todo", Summary: brief, Files: []string{}}, nil
+	}
+	prompt := prompts.FigurePrompt(promptWorkspace(in.Workspace), pFigure(f), FigurePython())
+	_, hr, err := harnessInto[WorkerResult](ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
+	pdf := filepath.Join(in.Workspace.FiguresDir, f.Slug+".pdf")
+	if err != nil || !FileExists(pdf) {
+		reason := "paper/figures/" + f.Slug + ".pdf was not produced"
+		if err != nil {
+			reason = err.Error()
+		} else if hr != nil && hr.IsError {
+			reason = hr.ErrorMessage
+		}
+		return WorkerResult{Name: name, Status: "failed", Summary: reason, Files: []string{}}, nil
+	}
+	summary := f.CaptionTakeaway
+	if summary == "" {
+		summary = f.Purpose
+	}
+	return WorkerResult{Name: name, Status: "done", Summary: summary, Files: []string{"paper/figures/" + f.Slug + ".py", "paper/figures/" + f.Slug + ".pdf", "paper/figures/" + f.Slug + ".png"}}, nil
 }
 
 func (s *Service) BuildBibliography(ctx context.Context, in BuildBibliographyInput) (any, error) {
 	prompt := prompts.BibliographyPrompt(promptWorkspace(in.Workspace), in.CitationNeeds, in.AllowWeb)
+	out, hr, err := harnessInto[WorkerResult](ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
 	refs := filepath.Join(in.Workspace.PaperDir, "refs.bib")
-	hr, err := harnessArtifact(ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
-	if err == nil && hr != nil && !hr.IsError && !FileExists(refs) {
-		retry := prompt + "\n\nVERIFICATION RETRY: Your previous attempt did not create paper/refs.bib. Use filesystem tools now, write that exact file under the same no-fabrication constraints, verify it exists, then finish. Do not merely describe the bibliography."
-		hr, err = harnessArtifact(ctx, s, retry, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
-	}
 	if err != nil || !FileExists(refs) {
 		reason := "paper/refs.bib was not created"
 		if err != nil {
@@ -98,44 +121,24 @@ func (s *Service) BuildBibliography(ctx context.Context, in BuildBibliographyInp
 		_, _ = WriteText(refs, "% refs.bib — bibliography build failed; no entries were written.\n")
 		return WorkerResult{Name: "bibliography", Status: "failed", Summary: reason, Files: []string{"paper/refs.bib"}}, nil
 	}
-	summary := "Bibliography assembled"
-	return WorkerResult{Name: "bibliography", Status: "done", Summary: summary, Files: []string{"paper/refs.bib"}}, nil
-}
-
-func buildConfident(sections []WorkerResult, bibliography WorkerResult) bool {
-	confident := bibliography.Status != "failed"
-	for _, section := range sections {
-		confident = confident && section.Status == "done"
+	summary := out.Summary
+	if summary == "" {
+		summary = "Bibliography assembled"
 	}
-	return confident
+	return WorkerResult{Name: "bibliography", Status: "done", Summary: summary, Files: []string{"paper/refs.bib"}}, nil
 }
 
 func (s *Service) RunBuild(ctx context.Context, in RunBuildInput) (any, error) {
 	sections := append([]SectionSpec(nil), in.Blueprint.Sections...)
 	sort.SliceStable(sections, func(i, j int) bool { return sections[i].Index < sections[j].Index })
 	figures := in.Blueprint.Figures
-	secResults := make([]WorkerResult, len(sections))
-	figResults := make([]WorkerResult, len(figures))
-	// Figures depend only on the evidence ledger and source assets, so overlap
-	// them with bibliography construction. Sections wait for refs.bib because
-	// their citation contract depends on the verified key set.
-	figGroup, figCtx := errgroup.WithContext(ctx)
-	for i, fig := range figures {
-		i, fig := i, fig
-		figGroup.Go(func() error {
-			v, e := callInto[WorkerResult](figCtx, s, "build_build_figure", BuildFigureInput{Workspace: in.Workspace, Figure: fig, Model: in.Model})
-			if e != nil {
-				v = WorkerResult{Name: "figure:" + fig.Slug, Status: "failed", Summary: e.Error(), Files: []string{}}
-			}
-			figResults[i] = v
-			return nil
-		})
-	}
 	bib, err := callInto[WorkerResult](ctx, s, "build_build_bibliography", BuildBibliographyInput{Workspace: in.Workspace, CitationNeeds: in.Blueprint.CitationNeeds, AllowWeb: in.AllowWeb, Model: in.Model})
 	if err != nil {
 		bib = WorkerResult{Name: "bibliography", Status: "failed", Summary: err.Error(), Files: []string{}}
 	}
-	sectionGroup, sectionCtx := errgroup.WithContext(ctx)
+	secResults := make([]WorkerResult, len(sections))
+	figResults := make([]WorkerResult, len(figures))
+	g, gctx := errgroup.WithContext(ctx)
 	for i, sec := range sections {
 		i, sec := i, sec
 		var prev, next *SectionSpec
@@ -147,8 +150,8 @@ func (s *Service) RunBuild(ctx context.Context, in RunBuildInput) (any, error) {
 			v := sections[i+1]
 			next = &v
 		}
-		sectionGroup.Go(func() error {
-			v, e := callInto[WorkerResult](sectionCtx, s, "build_write_section", WriteSectionInput{Workspace: in.Workspace, Section: sec, PrevSection: prev, NextSection: next, Model: in.Model})
+		g.Go(func() error {
+			v, e := callInto[WorkerResult](gctx, s, "build_write_section", WriteSectionInput{Workspace: in.Workspace, Section: sec, PrevSection: prev, NextSection: next, Model: in.Model})
 			if e != nil {
 				v = WorkerResult{Name: "section:" + sec.Slug, Status: "failed", Summary: e.Error(), Files: []string{}}
 			}
@@ -156,13 +159,22 @@ func (s *Service) RunBuild(ctx context.Context, in RunBuildInput) (any, error) {
 			return nil
 		})
 	}
-	_ = sectionGroup.Wait()
-	_ = figGroup.Wait()
-	// Match the Python workflow: non-buildable figures are durable TODO briefs,
-	// not manuscript-build failures. Prose and bibliography are the required
-	// build contract; figure quality is enforced independently for every figure
-	// that is actually built.
-	confident := buildConfident(secResults, bib)
+	for i, fig := range figures {
+		i, fig := i, fig
+		g.Go(func() error {
+			v, e := callInto[WorkerResult](gctx, s, "build_build_figure", BuildFigureInput{Workspace: in.Workspace, Figure: fig, Model: in.Model})
+			if e != nil {
+				v = WorkerResult{Name: "figure:" + fig.Slug, Status: "failed", Summary: e.Error(), Files: []string{}}
+			}
+			figResults[i] = v
+			return nil
+		})
+	}
+	_ = g.Wait()
+	confident := bib.Status != "failed"
+	for _, x := range secResults {
+		confident = confident && x.Status == "done"
+	}
 	GitSnapshot(in.Workspace.Root, "P3 build complete")
 	return BuildReport{Sections: secResults, Figures: figResults, Bibliography: bib, Confident: confident}, nil
 }

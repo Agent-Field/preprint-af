@@ -15,7 +15,6 @@ type WriteRequest struct {
 	FieldHint        *string `json:"field_hint"`
 	MaxRounds        int     `json:"max_rounds"`
 	AllowWeb         bool    `json:"allow_web"`
-	ShowTODOs        bool    `json:"show_todos"`
 	DryRun           bool    `json:"dry_run"`
 	QualityThreshold float64 `json:"quality_threshold"`
 	PlateauDelta     float64 `json:"plateau_delta"`
@@ -119,7 +118,7 @@ type StoryFrame struct {
 }
 
 type FrameSet struct {
-	Frames              []StoryFrame `json:"frames" jsonschema:"minItems=5,maxItems=6"`
+	Frames              []StoryFrame `json:"frames"`
 	GenerationRationale string       `json:"generation_rationale"`
 	Confident           bool         `json:"confident"`
 }
@@ -203,51 +202,6 @@ type FigureSpec struct {
 	CaptionTakeaway string   `json:"caption_takeaway"`
 }
 
-// FigureDesign is the visual contract produced before a figure worker edits code.
-// It separates scientific visual judgment from implementation and gives the
-// renderer a small, inspectable target.
-type FigureDesign struct {
-	VisualKind  string   `json:"visual_kind"`
-	Composition string   `json:"composition"`
-	EvidenceUse []string `json:"evidence_use"`
-	Buildable   bool     `json:"buildable"`
-	Confident   bool     `json:"confident"`
-}
-
-func NewFigureDesign() FigureDesign { return FigureDesign{EvidenceUse: []string{}} }
-
-func (v *FigureDesign) UnmarshalJSON(data []byte) error {
-	type plain FigureDesign
-	seeded := plain(NewFigureDesign())
-	if err := json.Unmarshal(data, &seeded); err != nil {
-		return err
-	}
-	*v = FigureDesign(seeded)
-	return nil
-}
-
-// FigureReview is a vision review of the rendered PNG. HardFailures are
-// concrete defects that must trigger the bounded rebuild path.
-type FigureReview struct {
-	Score        float64  `json:"score"`
-	HardFailures []string `json:"hard_failures"`
-	Critique     string   `json:"critique"`
-	Rebuild      bool     `json:"rebuild"`
-	Confident    bool     `json:"confident"`
-}
-
-func NewFigureReview() FigureReview { return FigureReview{HardFailures: []string{}} }
-
-func (v *FigureReview) UnmarshalJSON(data []byte) error {
-	type plain FigureReview
-	seeded := plain(NewFigureReview())
-	if err := json.Unmarshal(data, &seeded); err != nil {
-		return err
-	}
-	*v = FigureReview(seeded)
-	return nil
-}
-
 func NewFigureSpec() FigureSpec { return FigureSpec{DataSources: []string{}} }
 
 func (v *FigureSpec) UnmarshalJSON(data []byte) error {
@@ -261,7 +215,7 @@ func (v *FigureSpec) UnmarshalJSON(data []byte) error {
 }
 
 type Blueprint struct {
-	Sections      []SectionSpec `json:"sections" jsonschema:"minItems=6,maxItems=9"`
+	Sections      []SectionSpec `json:"sections"`
 	Figures       []FigureSpec  `json:"figures"`
 	CitationNeeds []string      `json:"citation_needs"`
 	VenueNotes    string        `json:"venue_notes"`
@@ -372,78 +326,6 @@ type FidelityAudit struct {
 	Blocking          bool     `json:"blocking"`
 	Score             float64  `json:"score"`
 	Confident         bool     `json:"confident"`
-}
-
-// FactualFinding is the located, executable unit used by the pre-compile
-// factual gate. Unlike the legacy FidelityAudit strings, it retains the exact
-// writable target so repairs can run concurrently without overlapping files.
-type FactualFinding struct {
-	Target            string   `json:"target"`
-	File              string   `json:"file"`
-	Line              int      `json:"line"`
-	Kind              string   `json:"kind"`
-	Claim             string   `json:"claim"`
-	EvidenceIDs       []string `json:"evidence_ids"`
-	SourcePaths       []string `json:"source_paths"`
-	Explanation       string   `json:"explanation"`
-	RepairInstruction string   `json:"repair_instruction"`
-	Blocking          bool     `json:"blocking"`
-}
-
-func NewFactualFinding() FactualFinding {
-	return FactualFinding{EvidenceIDs: []string{}, SourcePaths: []string{}}
-}
-
-func (v *FactualFinding) UnmarshalJSON(data []byte) error {
-	type plain FactualFinding
-	seeded := plain(NewFactualFinding())
-	if err := json.Unmarshal(data, &seeded); err != nil {
-		return err
-	}
-	*v = FactualFinding(seeded)
-	return nil
-}
-
-type FactualScopeAudit struct {
-	Target    string           `json:"target"`
-	Findings  []FactualFinding `json:"findings"`
-	Score     float64          `json:"score"`
-	Confident bool             `json:"confident"`
-}
-
-func NewFactualScopeAudit() FactualScopeAudit {
-	return FactualScopeAudit{Findings: []FactualFinding{}}
-}
-
-func (v *FactualScopeAudit) UnmarshalJSON(data []byte) error {
-	type plain FactualScopeAudit
-	seeded := plain(NewFactualScopeAudit())
-	if err := json.Unmarshal(data, &seeded); err != nil {
-		return err
-	}
-	*v = FactualScopeAudit(seeded)
-	return nil
-}
-
-type FactualGateReport struct {
-	Passed                bool                `json:"passed"`
-	Initial               []FactualScopeAudit `json:"initial"`
-	Reaudit               []FactualScopeAudit `json:"reaudit"`
-	DeterministicFindings []FactualFinding    `json:"deterministic_findings"`
-	RepairsApplied        int                 `json:"repairs_applied"`
-	Remaining             []FactualFinding    `json:"remaining"`
-	UnverifiableEvidence  []string            `json:"unverifiable_evidence"`
-	Confident             bool                `json:"confident"`
-}
-
-func NewFactualGateReport() FactualGateReport {
-	return FactualGateReport{
-		Initial:               []FactualScopeAudit{},
-		Reaudit:               []FactualScopeAudit{},
-		DeterministicFindings: []FactualFinding{},
-		Remaining:             []FactualFinding{},
-		UnverifiableEvidence:  []string{},
-	}
 }
 
 type CritiqueBundle struct {

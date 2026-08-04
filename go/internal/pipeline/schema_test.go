@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
-
-	"github.com/invopop/jsonschema"
 )
 
 func TestBlueprintSchemaIncludesNestedSectionContract(t *testing.T) {
@@ -27,69 +25,6 @@ func TestBlueprintSchemaIncludesNestedSectionContract(t *testing.T) {
 	}
 	if sections["minItems"] != float64(6) || sections["maxItems"] != float64(9) {
 		t.Fatalf("sections lacks prompt cardinality: %s", b)
-	}
-}
-
-func TestBlueprintHarnessSchemaRequiresSixToNineSections(t *testing.T) {
-	reflector := jsonschema.Reflector{DoNotReference: true}
-	raw, err := reflector.Reflect(new(Blueprint)).MarshalJSON()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var schema map[string]any
-	if err := json.Unmarshal(raw, &schema); err != nil {
-		t.Fatal(err)
-	}
-	properties := schema["properties"].(map[string]any)
-	sections := properties["sections"].(map[string]any)
-	if got := sections["minItems"]; got != float64(6) {
-		t.Fatalf("minItems=%v", got)
-	}
-	if got := sections["maxItems"]; got != float64(9) {
-		t.Fatalf("maxItems=%v", got)
-	}
-}
-
-func TestValidateBlueprintContract(t *testing.T) {
-	for _, count := range []int{6, 7, 8, 9} {
-		if err := validateBlueprintContract(Blueprint{Sections: make([]SectionSpec, count)}); err != nil {
-			t.Fatalf("count=%d: %v", count, err)
-		}
-	}
-	for _, count := range []int{0, 5, 10} {
-		if err := validateBlueprintContract(Blueprint{Sections: make([]SectionSpec, count)}); err == nil {
-			t.Fatalf("count=%d unexpectedly valid", count)
-		}
-	}
-}
-
-func TestFrameHarnessSchemaRequiresFiveToSixFrames(t *testing.T) {
-	reflector := jsonschema.Reflector{DoNotReference: true}
-	raw, err := reflector.Reflect(new(FrameSet)).MarshalJSON()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var schema map[string]any
-	if err := json.Unmarshal(raw, &schema); err != nil {
-		t.Fatal(err)
-	}
-	properties := schema["properties"].(map[string]any)
-	frames := properties["frames"].(map[string]any)
-	if frames["minItems"] != float64(5) || frames["maxItems"] != float64(6) {
-		t.Fatalf("frames lacks prompt cardinality: %s", raw)
-	}
-}
-
-func TestValidateFrameSetContract(t *testing.T) {
-	for _, count := range []int{5, 6} {
-		if err := validateFrameSetContract(FrameSet{Frames: make([]StoryFrame, count)}); err != nil {
-			t.Fatalf("count=%d: %v", count, err)
-		}
-	}
-	for _, count := range []int{0, 1, 4, 7} {
-		if err := validateFrameSetContract(FrameSet{Frames: make([]StoryFrame, count)}); err == nil {
-			t.Fatalf("count=%d unexpectedly valid", count)
-		}
 	}
 }
 

@@ -30,20 +30,12 @@ func (n *Node) RegisterAll() {
 	regReasoner(n, "repair_apply_repairs", []string{"repair"}, n.Pipeline.ApplyRepairs)
 	regReasoner(n, "write_paper", []string{"entry", "workflow"}, n.Pipeline.WritePaper,
 		agent.WithInputSchema(writePaperInputSchema))
-	// Additive visual-quality subgraph. The original 19 public reasoners and
-	// their prompts remain intact; build_build_figure composes these children so
-	// ideation, rendering, and image critique are visible in the AgentField DAG.
-	regReasoner(n, "figure_ideate", []string{"build", "figure", "vision"}, n.Pipeline.IdeateFigure)
-	regReasoner(n, "figure_render", []string{"build", "figure"}, n.Pipeline.RenderFigure)
-	regReasoner(n, "figure_review", []string{"build", "figure", "vision", "verification"}, n.Pipeline.ReviewFigure)
-	regReasoner(n, "factual_audit_scope", []string{"factual", "verification"}, n.Pipeline.AuditFactualScope)
-	regReasoner(n, "factual_run_precompile_gate", []string{"factual", "verification", "orchestration"}, n.Pipeline.RunFactualGate)
 }
 
 func regReasoner[T any](n *Node, name string, tags []string, fn func(context.Context, T) (any, error), extra ...agent.ReasonerOption) {
 	opts := []agent.ReasonerOption{
 		agent.WithReasonerTags(tags...),
-		agent.WithDescription("Go preprint-af capability: " + name + "."),
+		agent.WithDescription("Exact Go port of preprint-af's " + name + " reasoner."),
 	}
 	opts = append(opts, extra...)
 	n.App.RegisterReasoner(name, func(ctx context.Context, input map[string]any) (any, error) {
@@ -66,7 +58,6 @@ var writePaperInputSchema = json.RawMessage(`{
     "field_hint":{"type":["string","null"]},
     "max_rounds":{"type":"integer","minimum":1,"maximum":8,"default":6},
     "allow_web":{"type":"boolean","default":true},
-    "show_todos":{"type":"boolean","default":false,"description":"Render TODO boxes in the PDF. Defaults to false; unresolved work remains in TODO.md and REVIEW.md."},
     "dry_run":{"type":"boolean","default":false},
     "quality_threshold":{"type":"number","minimum":0,"maximum":1,"default":0.9},
     "plateau_delta":{"type":"number","minimum":0,"maximum":0.1,"default":0.01},

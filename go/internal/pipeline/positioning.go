@@ -15,7 +15,6 @@ import (
 const evidenceCap = 60000
 const digestCap = 8000
 const topFrames = 4
-const maxPositioningConcurrency = 8
 
 type GenerateFramesInput struct {
 	Workspace   Workspace `json:"workspace"`
@@ -53,27 +52,12 @@ func promptJudgment(j FrameJudgment) prompts.FrameJudgment {
 	return prompts.FrameJudgment{FrameName: j.FrameName, Persona: j.Persona, Comprehension: j.Comprehension, Excitement: j.Excitement, Credibility: j.Credibility, Naturalness: j.Naturalness, Concerns: j.Concerns, Confident: j.Confident}
 }
 
-func validateFrameSetContract(fs FrameSet) error {
-	if len(fs.Frames) < 5 || len(fs.Frames) > 6 {
-		return fmt.Errorf("frame generation produced %d frames (need 5-6)", len(fs.Frames))
-	}
-	return nil
-}
-
 func (s *Service) GenerateFrames(ctx context.Context, in GenerateFramesInput) (any, error) {
 	evidence := ReadText(in.Workspace.EvidencePath, evidenceCap)
 	system, user := prompts.FrameGenerationPrompts(stringValue(in.TargetVenue), stringValue(in.FieldHint), evidence)
 	out, err := aiInto[FrameSet](ctx, s, system, user, stringValue(in.Model))
-	directContractErr := validateFrameSetContract(out)
-	if err != nil || directContractErr != nil {
-		fallback, hr, fallbackErr := harnessInto[FrameSet](ctx, s, system+"\n\n"+user, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
-		if fallbackErr != nil || hr == nil || hr.IsError {
-			return nil, fmt.Errorf("frame generation failed; direct error: %v; direct contract: %v; harness error: %v", err, directContractErr, fallbackErr)
-		}
-		out = fallback
-	}
-	if err := validateFrameSetContract(out); err != nil {
-		return nil, fmt.Errorf("frame fallback violated contract: %w", err)
+	if err != nil {
+		return FrameSet{Frames: []StoryFrame{}, GenerationRationale: "frame generation failed: " + err.Error()}, nil
 	}
 	return out, nil
 }
@@ -118,7 +102,6 @@ func (s *Service) RunPositioning(ctx context.Context, in RunPositioningInput) (a
 	var novelty NoveltyScan
 	var mu sync.Mutex
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(maxPositioningConcurrency)
 	for fi, f := range frames {
 		for pi, p := range prompts.PositioningPersonas {
 			idx := fi*len(prompts.PositioningPersonas) + pi

@@ -33,18 +33,9 @@ user_environment:
     - name: HARNESS_MAX_TURNS
       description: Maximum OpenCode turns per worker
       default: "40"
-    - name: OPENCODE_MAX_CONCURRENT
-      description: Shared OpenCode worker concurrency
-      default: "6"
     - name: AGENTFIELD_HARNESS_TIMEOUT_SECONDS
       description: Harness timeout in seconds
       default: "1800"
-    - name: AI_TIMEOUT_SECONDS
-      description: Hard HTTP ceiling for direct model attempts
-      default: "300"
-    - name: AI_MAX_TOKENS
-      description: Maximum direct structured response tokens
-      default: "8192"
     - name: FIGURE_PYTHON
       description: Optional Python executable with plotting dependencies for native runs
       default: ""

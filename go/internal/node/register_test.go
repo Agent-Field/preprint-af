@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestRegisteredReasonerSurfacePreservesPythonAndAddsVisualQuality(t *testing.T) {
+func TestRegisteredReasonerSurfaceMatchesPython(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "")
 	n, err := Build()
 	if err != nil {
@@ -21,8 +21,6 @@ func TestRegisteredReasonerSurfacePreservesPythonAndAddsVisualQuality(t *testing
 		"critique_persona_review", "critique_narrative_review", "critique_fidelity_audit", "critique_run_critique",
 		"repair_plan_repairs", "repair_apply_repairs",
 		"write_paper",
-		"figure_ideate", "figure_render", "figure_review",
-		"factual_audit_scope", "factual_run_precompile_gate",
 	}
 	if got := n.RegisteredNames(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("reasoner surface drifted\ngot:  %#v\nwant: %#v", got, want)

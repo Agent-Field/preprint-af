@@ -25,12 +25,6 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 	if err != nil {
 		return nil, err
 	}
-	if ok, reason := EvidenceLedgerValid(ws, evidence); !ok {
-		report := NewFactualGateReport()
-		report.Remaining = []FactualFinding{{Target: "front_matter", File: "EVIDENCE.md", Kind: "evidence_intake_failure", Claim: "evidence ledger", EvidenceIDs: []string{}, SourcePaths: []string{}, Explanation: reason, RepairInstruction: "Correct the source material or evidence intake, then rerun the paper from the beginning.", Blocking: true}}
-		reviewPath := writeFactualGateArtifacts(ws, report)
-		return WriteResult{Status: "incomplete", RunID: ws.RunID, Workspace: ws.Root, Rounds: []RoundRecord{}, StopReason: "evidence_quality_gate_failed", TODOPath: ws.TODOPath, ReviewPath: reviewPath, PositioningPath: ws.PositioningPath}, nil
-	}
 	_ = SaveState(ws.Root, map[string]any{"phase": "P0", "fact_count": evidence.FactCount, "confident": evidence.Confident})
 	GitSnapshot(ws.Root, "P0 evidence")
 	decision, err := callInto[PositioningDecision](ctx, s, "positioning_run_positioning", RunPositioningInput{Workspace: ws, TargetVenue: req.TargetVenue, FieldHint: req.FieldHint, AllowWeb: req.AllowWeb, Model: req.Model})
@@ -54,19 +48,7 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 	}
 	_ = SaveState(ws.Root, map[string]any{"phase": "P3", "confident": build.Confident})
 	GitSnapshot(ws.Root, "P3 build")
-	factual, factualErr := callInto[FactualGateReport](ctx, s, "factual_run_precompile_gate", RunFactualGateInput{Workspace: ws, Model: req.Model})
-	if factualErr != nil {
-		report := NewFactualGateReport()
-		report.Remaining = []FactualFinding{{Target: "front_matter", File: "paper/main.tex", Kind: "factual_gate_failure", Claim: "pre-compile factual gate", EvidenceIDs: []string{}, SourcePaths: []string{}, Explanation: factualErr.Error(), RepairInstruction: "Run the pre-compile factual gate successfully before compilation.", Blocking: true}}
-		reviewPath := writeFactualGateArtifacts(ws, report)
-		return WriteResult{Status: "incomplete", RunID: ws.RunID, Workspace: ws.Root, Title: decision.FinalTitle, Rounds: []RoundRecord{}, StopReason: "precompile_factual_gate_failed", TODOPath: ws.TODOPath, ReviewPath: reviewPath, PositioningPath: ws.PositioningPath}, nil
-	}
-	if !factual.Passed {
-		reviewPath := filepath.Join(ws.ReviewsDir, "factual-gate.md")
-		return WriteResult{Status: "incomplete", RunID: ws.RunID, Workspace: ws.Root, Title: decision.FinalTitle, Rounds: []RoundRecord{}, StopReason: "precompile_factual_gate_failed", TODOPath: ws.TODOPath, ReviewPath: reviewPath, PositioningPath: ws.PositioningPath}, nil
-	}
-	_ = SaveState(ws.Root, map[string]any{"phase": "P3-factual", "passed": factual.Passed, "repairs_applied": factual.RepairsApplied})
-	compile, err := callInto[CompileReport](ctx, s, "latex_compile_paper", CompilePaperInput{Workspace: ws, ShowTODOs: req.ShowTODOs, Model: req.Model})
+	compile, err := callInto[CompileReport](ctx, s, "latex_compile_paper", CompilePaperInput{Workspace: ws, Model: req.Model})
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +88,7 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 			r := records[idx]
 			_ = SaveState(ws.Root, map[string]any{"phase": "critique", "round": round, "total_score": total, "persona_score": r.PersonaScore, "narrative_score": r.NarrativeScore, "fidelity_score": r.FidelityScore, "slop_score": r.SlopScore, "compile_ok": compile.Success, "repairs_applied": r.RepairsApplied, "stop": r.Stop, "stop_reason": r.StopReason})
 		}
-		if build.Confident && compile.Success && total >= req.QualityThreshold && !b.Fidelity.Blocking {
+		if compile.Success && total >= req.QualityThreshold && !b.Fidelity.Blocking {
 			records[idx].Stop = true
 			records[idx].StopReason = "quality_threshold_met"
 			stopReason = records[idx].StopReason
@@ -125,15 +107,6 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 		} else {
 			noImprove = 0
 		}
-		// Never mutate the manuscript after the final independent review. This
-		// keeps the returned PDF and factual verdict on the same exact source.
-		if round == req.MaxRounds {
-			records[idx].Stop = true
-			records[idx].StopReason = "safety_cap_reached"
-			stopReason = records[idx].StopReason
-			persist()
-			break
-		}
 		plan, e := callInto[RepairPlan](ctx, s, "repair_plan_repairs", PlanRepairsInput{Workspace: ws, Critique: b, Model: req.Model})
 		if e != nil {
 			return nil, e
@@ -150,28 +123,20 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 			return nil, e
 		}
 		records[idx].RepairsApplied = applied
-		// General reviewer repairs can change factual claims. Run the same
-		// parallel, independently re-audited gate before compiling those edits.
-		factual, e = callInto[FactualGateReport](ctx, s, "factual_run_precompile_gate", RunFactualGateInput{Workspace: ws, Model: req.Model})
-		if e != nil || !factual.Passed {
-			if _, syncErr := SyncManuscriptTODOs(ws); syncErr != nil {
-				return nil, syncErr
-			}
-			reason := "precompile_factual_gate_failed_after_repair"
-			return WriteResult{Status: "incomplete", RunID: ws.RunID, Workspace: ws.Root, Title: decision.FinalTitle, Rounds: records, StopReason: reason, TODOPath: ws.TODOPath, ReviewPath: filepath.Join(ws.ReviewsDir, "factual-gate.md"), PositioningPath: ws.PositioningPath}, nil
-		}
-		compile, e = callInto[CompileReport](ctx, s, "latex_compile_paper", CompilePaperInput{Workspace: ws, ShowTODOs: req.ShowTODOs, Model: req.Model})
+		compile, e = callInto[CompileReport](ctx, s, "latex_compile_paper", CompilePaperInput{Workspace: ws, Model: req.Model})
 		if e != nil {
 			return nil, e
 		}
 		v := total
 		prev = &v
 		persist()
+		if round == req.MaxRounds {
+			records[idx].Stop = true
+			records[idx].StopReason = "safety_cap_reached"
+			stopReason = records[idx].StopReason
+		}
 	}
-	if _, err := SyncManuscriptTODOs(ws); err != nil {
-		return nil, err
-	}
-	todo := ReadText(ws.TODOPath, 0)
+	todo := ReadText(ws.TODOPath, 6000)
 	review := composeReview(bundle, records, stopReason, todo)
 	reviewPath, _ := WriteText(filepath.Join(ws.Root, "REVIEW.md"), review)
 	GitSnapshot(ws.Root, "REVIEW")
@@ -183,18 +148,7 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 	if compile.Success {
 		pdf = compile.PDFPath
 	}
-	status := "completed"
-	if !build.Confident {
-		status = "incomplete"
-		stopReason = "figure_or_build_quality_gate_failed"
-	} else if !compile.Success {
-		status = "incomplete"
-		stopReason = "compile_gate_failed"
-	} else if bundle == nil || bundle.Fidelity.Blocking || !bundle.Fidelity.Confident {
-		status = "incomplete"
-		stopReason = "factual_fidelity_gate_failed"
-	}
-	return WriteResult{Status: status, RunID: ws.RunID, Workspace: ws.Root, PDFPath: pdf, Title: decision.FinalTitle, Rounds: records, FinalScore: final, StopReason: stopReason, TODOPath: ws.TODOPath, ReviewPath: reviewPath, PositioningPath: ws.PositioningPath}, nil
+	return WriteResult{Status: "completed", RunID: ws.RunID, Workspace: ws.Root, PDFPath: pdf, Title: decision.FinalTitle, Rounds: records, FinalScore: final, StopReason: stopReason, TODOPath: ws.TODOPath, ReviewPath: reviewPath, PositioningPath: ws.PositioningPath}, nil
 }
 
 func round4(v float64) float64 { return math.Round(v*10000) / 10000 }

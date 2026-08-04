@@ -112,12 +112,9 @@ and [OpenCode](https://opencode.ai?utm_source=github&utm_medium=readme&utm_campa
 3. **Blueprint.** Section-by-section beats with an explicit *transition contract* (what each
    section must establish for the next), the fact ids each section may use, and a figure plan tied
    to real data files.
-4. **Parallel build.** One agent per section file, one per figure, and one for the bibliography.
-   Figure agents resolve existing author assets, choose the visual form, write and rerun the
-   matplotlib script, then, when the selected model supports images, inspect the rendered PNG and
-   rebuild it when the visual review fails. PDF is the LaTeX master; image review is optional and
-   no merge conflicts occur because each agent owns one artifact. Later prose repairs preserve
-   every validated figure block.
+4. **Parallel build.** One agent per section file, one per figure (it writes the matplotlib
+   script, *runs it* against your data, and verifies the PDF), and one for the bibliography. No
+   merge conflicts: each agent owns one file.
 5. **Compile gate.** `latexmk` must produce a PDF; failures get a targeted, LaTeX-only repair.
 6. **Critique.** Reviewer personas read the *whole* paper, a narrative critic checks flow and
    whether the body delivers what the title promises, a fidelity auditor traces every number back
@@ -202,16 +199,15 @@ cp .env.example .env                 # set OPENROUTER_API_KEY
 docker compose up --build
 ```
 
-The image bundles TeX Live, OpenCode, Matplotlib, NumPy, pandas, scikit-learn, and PDF inspection
-tools. Its build compiles the paper template and renders a vector figure as smoke tests. Mount the
-folder you want to write about and pass its in-container path as `folder_path`.
+The image bundles TeX Live, OpenCode, and the Python plotting stack. Its build compiles the paper
+template as a smoke test. Mount the folder you want to write about and pass its in-container path
+as `folder_path`.
 
 ### Native Go node
 
-The `go/` module preserves the same 19 reasoners, prompt text, schemas, parallel fan-outs, compile
-gates, and convergence rules, packaged as one stripped static agent binary. Its figure worker adds
-three visible child reasoners for visual ideation, rendering, and image critique. It defaults to
-`openrouter/qwen/qwen3.7-flash` for direct reasoning and OpenCode workers.
+The `go/` module is a behavior-preserving port: the same 19 reasoners, prompt text, schemas,
+parallel fan-outs, compile gates, and convergence rules, packaged as one stripped static agent
+binary. It defaults to `openrouter/qwen/qwen3.7-flash` for direct reasoning and OpenCode workers.
 Native `af` runs use host `opencode`, `latexmk`, and `pdflatex`; use Docker for a self-contained
 runtime. Set `FIGURE_PYTHON` when figure scripts need a separate scientific Python environment.
 
