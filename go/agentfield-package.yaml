@@ -1,0 +1,53 @@
+config_version: v1
+name: preprint-af
+version: 2.0.0
+description: Native Go preprint writer
+author: Agent-Field
+language: go
+
+entrypoint:
+  build: ./cmd/preprint-af
+  start: bin/preprint-af
+  healthcheck: /health
+
+agent_node:
+  node_id: preprint-af
+  default_port: 8001
+
+user_environment:
+  required:
+    - name: OPENROUTER_API_KEY
+      description: OpenRouter API key for direct reasoning and OpenCode workers
+      type: secret
+      scope: global
+  optional:
+    - name: AGENTFIELD_SERVER
+      description: AgentField control-plane URL
+      default: http://localhost:8080
+    - name: AI_MODEL
+      description: Direct reasoning model
+      default: openrouter/deepseek/deepseek-v4-pro
+    - name: OPENCODE_MODEL
+      description: OpenCode worker model
+      default: openrouter/deepseek/deepseek-v4-pro
+    - name: HARNESS_MAX_TURNS
+      description: Maximum OpenCode turns per worker
+      default: "40"
+    - name: HARNESS_MAX_BUDGET_USD
+      description: Maximum OpenCode budget per worker
+      default: "5.00"
+    - name: HARNESS_PERMISSION_MODE
+      description: OpenCode worker permission mode
+      default: auto
+    - name: OPENCODE_MAX_CONCURRENT
+      description: Maximum concurrent OpenCode workers
+      default: "10"
+    - name: AGENTFIELD_HARNESS_TIMEOUT_SECONDS
+      description: Harness timeout in seconds
+      default: "1800"
+    - name: FIGURE_PYTHON
+      description: Optional Python executable with plotting dependencies for native runs
+      default: ""
+    - name: PREPRINT_AF_ROOT
+      description: Optional repository root override for run workspaces
+      default: ""

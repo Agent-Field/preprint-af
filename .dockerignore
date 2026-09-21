@@ -3,6 +3,8 @@ __pycache__
 .pytest_cache
 .env
 .venv
+.tmp
+go/bin
 *.log
 .git
 .DS_Store
