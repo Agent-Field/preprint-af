@@ -143,7 +143,12 @@ func (s *Service) ScanNovelty(ctx context.Context, in ScanNoveltyInput) (any, er
 	prompt := prompts.NoveltyScanPrompt(in.Workspace.Root, frames)
 	out, hr, err := harnessInto[NoveltyScan](ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
 	if err != nil {
-		return nil, err
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		// Python wraps this harness call in try/except and degrades to a
+		// non-confident empty scan; a scout failure must not abort positioning.
+		return NewNoveltyScan(), nil
 	}
 	scan := filepath.Join(in.Workspace.Root, "POSITIONING_SCAN.md")
 	if hr == nil || hr.IsError || hr.Parsed == nil || !FileExists(scan) {

@@ -1,11 +1,16 @@
 package pipeline
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Agent-Field/agentfield/sdk/go/ai"
+	"github.com/Agent-Field/agentfield/sdk/go/harness"
 )
 
 func TestTextCapsCountUnicodeCodePointsLikePython(t *testing.T) {
@@ -141,5 +146,60 @@ func TestSaveStateUsesPythonJSONEncoding(t *testing.T) {
 	text := ReadText(filepath.Join(dir, "STATE.json"))
 	if !strings.Contains(text, `"A \u2014 B < C"`) {
 		t.Fatalf("STATE.json encoding drifted from json.dumps: %s", text)
+	}
+}
+
+// failingApp is an App whose harness always fails, the way a crashed or
+// unavailable OpenCode subprocess does.
+type failingApp struct{}
+
+func (failingApp) AI(context.Context, string, ...ai.Option) (*ai.Response, error) {
+	return nil, errors.New("ai unavailable")
+}
+
+func (failingApp) Harness(ctx context.Context, _ string, _ map[string]any, _ any, _ harness.Options) (*harness.Result, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return nil, errors.New("opencode exited 1")
+}
+
+func (failingApp) Call(context.Context, string, map[string]any) (map[string]any, error) {
+	return nil, errors.New("call unavailable")
+}
+
+func (failingApp) CallLocal(context.Context, string, map[string]any) (any, error) {
+	return nil, errors.New("call unavailable")
+}
+
+func TestScanNoveltyDegradesOnHarnessFailure(t *testing.T) {
+	// Python's scan_novelty catches any harness exception and returns
+	// safe_ai_fallback(NoveltyScan); only cancellation aborts positioning.
+	svc := New(failingApp{}, "preprint-af")
+	out, err := svc.ScanNovelty(context.Background(), ScanNoveltyInput{
+		Workspace: Workspace{Root: t.TempDir()},
+		FrameSet:  map[string]any{"frames": []any{}},
+	})
+	if err != nil {
+		t.Fatalf("harness failure aborted positioning: %v", err)
+	}
+	scan, ok := out.(NoveltyScan)
+	if !ok {
+		t.Fatalf("ScanNovelty returned %T, want NoveltyScan", out)
+	}
+	if scan.Confident {
+		t.Fatal("degraded novelty scan must not claim confidence")
+	}
+}
+
+func TestScanNoveltyPropagatesCancellation(t *testing.T) {
+	svc := New(failingApp{}, "preprint-af")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := svc.ScanNovelty(ctx, ScanNoveltyInput{
+		Workspace: Workspace{Root: t.TempDir()},
+		FrameSet:  map[string]any{"frames": []any{}},
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled scan returned %v, want context.Canceled", err)
 	}
 }
