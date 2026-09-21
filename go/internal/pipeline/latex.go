@@ -30,10 +30,16 @@ func (s *Service) CompilePaper(ctx context.Context, in CompilePaperInput) (any, 
 		if err := s.acquireHarness(ctx); err != nil {
 			return nil, err
 		}
-		hr, err := s.App.Harness(ctx, prompts.LatexRepairPrompt(excerpt), nil, nil, harness.Options{Provider: "opencode", Model: OpenCodeModel(stringValue(in.Model)), Cwd: in.Workspace.PaperDir, ProjectDir: in.Workspace.Root})
+		hr, err := s.App.Harness(ctx, prompts.LatexRepairPrompt(excerpt), nil, nil, harness.Options{
+			Provider:     "opencode",
+			Model:        OpenCodeModel(stringValue(in.Model)),
+			Cwd:          in.Workspace.PaperDir,
+			ProjectDir:   in.Workspace.Root,
+			MaxBudgetUSD: envFloatValue("HARNESS_MAX_BUDGET_USD", 5.0),
+		})
 		s.releaseHarness()
 		if err != nil {
-			fmt.Printf("[latex] repair pass errored: %v\n", err)
+			return nil, err
 		} else if hr != nil && hr.IsError {
 			fmt.Printf("[latex] repair pass errored: %s\n", hr.ErrorMessage)
 		}

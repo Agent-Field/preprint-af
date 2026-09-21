@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -20,19 +21,25 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 	if err != nil {
 		return nil, err
 	}
-	_ = SaveState(ws.Root, map[string]any{"phase": "P0", "fact_count": evidence.FactCount, "confident": evidence.Confident})
+	if err := SaveState(ws.Root, map[string]any{"phase": "P0", "fact_count": evidence.FactCount, "confident": evidence.Confident}); err != nil {
+		return nil, err
+	}
 	GitSnapshot(ws.Root, "P0 evidence")
 	decision, err := callInto[PositioningDecision](ctx, s, "positioning_run_positioning", RunPositioningInput{Workspace: ws, TargetVenue: req.TargetVenue, FieldHint: req.FieldHint, AllowWeb: req.AllowWeb, Model: req.Model})
 	if err != nil {
 		return nil, err
 	}
-	_ = SaveState(ws.Root, map[string]any{"phase": "P1", "title": decision.FinalTitle, "frame": decision.WinningFrameName})
+	if err := SaveState(ws.Root, map[string]any{"phase": "P1", "title": decision.FinalTitle, "frame": decision.WinningFrameName}); err != nil {
+		return nil, err
+	}
 	GitSnapshot(ws.Root, "P1 positioning")
 	bp, err := callInto[Blueprint](ctx, s, "blueprint_design_blueprint", DesignBlueprintInput{Workspace: ws, TargetVenue: req.TargetVenue, Model: req.Model})
 	if err != nil {
 		return nil, err
 	}
-	_ = SaveState(ws.Root, map[string]any{"phase": "P2", "sections": len(bp.Sections), "figures": len(bp.Figures)})
+	if err := SaveState(ws.Root, map[string]any{"phase": "P2", "sections": len(bp.Sections), "figures": len(bp.Figures)}); err != nil {
+		return nil, err
+	}
 	GitSnapshot(ws.Root, "P2 blueprint")
 	if req.DryRun {
 		return WriteResult{Status: "planned", RunID: ws.RunID, Workspace: ws.Root, Title: decision.FinalTitle, Rounds: []RoundRecord{}, StopReason: "dry_run", TODOPath: ws.TODOPath, PositioningPath: ws.PositioningPath}, nil
@@ -41,13 +48,17 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 	if err != nil {
 		return nil, err
 	}
-	_ = SaveState(ws.Root, map[string]any{"phase": "P3", "confident": build.Confident})
+	if err := SaveState(ws.Root, map[string]any{"phase": "P3", "confident": build.Confident}); err != nil {
+		return nil, err
+	}
 	GitSnapshot(ws.Root, "P3 build")
 	compile, err := callInto[CompileReport](ctx, s, "latex_compile_paper", CompilePaperInput{Workspace: ws, Model: req.Model})
 	if err != nil {
 		return nil, err
 	}
-	_ = SaveState(ws.Root, map[string]any{"phase": "P4", "compile_ok": compile.Success})
+	if err := SaveState(ws.Root, map[string]any{"phase": "P4", "compile_ok": compile.Success}); err != nil {
+		return nil, err
+	}
 	GitSnapshot(ws.Root, "P4 compile")
 	records := []RoundRecord{}
 	var prev *float64
@@ -79,15 +90,17 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 			bestRound = round
 		}
 		GitSnapshot(ws.Root, fmt.Sprintf("round %d critique score=%v", round, total))
-		persist := func() {
+		persist := func() error {
 			r := records[idx]
-			_ = SaveState(ws.Root, map[string]any{"phase": "critique", "round": round, "total_score": total, "persona_score": r.PersonaScore, "narrative_score": r.NarrativeScore, "fidelity_score": r.FidelityScore, "slop_score": r.SlopScore, "compile_ok": compile.Success, "repairs_applied": r.RepairsApplied, "stop": r.Stop, "stop_reason": r.StopReason})
+			return SaveState(ws.Root, map[string]any{"phase": "critique", "round": round, "total_score": total, "persona_score": r.PersonaScore, "narrative_score": r.NarrativeScore, "fidelity_score": r.FidelityScore, "slop_score": r.SlopScore, "compile_ok": compile.Success, "repairs_applied": r.RepairsApplied, "stop": r.Stop, "stop_reason": r.StopReason})
 		}
 		if compile.Success && total >= req.QualityThreshold && !b.Fidelity.Blocking {
 			records[idx].Stop = true
 			records[idx].StopReason = "quality_threshold_met"
 			stopReason = records[idx].StopReason
-			persist()
+			if err := persist(); err != nil {
+				return nil, err
+			}
 			break
 		}
 		if prev != nil && total-*prev < req.PlateauDelta {
@@ -96,7 +109,9 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 				records[idx].Stop = true
 				records[idx].StopReason = "quality_plateau"
 				stopReason = records[idx].StopReason
-				persist()
+				if err := persist(); err != nil {
+					return nil, err
+				}
 				break
 			}
 		} else {
@@ -110,7 +125,9 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 			records[idx].Stop = true
 			records[idx].StopReason = "no_repairs_needed"
 			stopReason = records[idx].StopReason
-			persist()
+			if err := persist(); err != nil {
+				return nil, err
+			}
 			break
 		}
 		applied, e := callLocalInto[int](ctx, s, "repair_apply_repairs", ApplyRepairsInput{Workspace: ws, Plan: plan, Model: req.Model})
@@ -124,7 +141,9 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 		}
 		v := total
 		prev = &v
-		persist()
+		if err := persist(); err != nil {
+			return nil, err
+		}
 		if round == req.MaxRounds {
 			records[idx].Stop = true
 			records[idx].StopReason = "safety_cap_reached"
@@ -133,7 +152,10 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 	}
 	todo := ReadText(ws.TODOPath, 6000)
 	review := composeReview(bundle, records, stopReason, todo)
-	reviewPath, _ := WriteText(filepath.Join(ws.Root, "REVIEW.md"), review)
+	reviewPath, err := WriteText(filepath.Join(ws.Root, "REVIEW.md"), review)
+	if err != nil {
+		return nil, err
+	}
 	GitSnapshot(ws.Root, "REVIEW")
 	final := 0.0
 	if bestRound > 0 {
@@ -146,7 +168,20 @@ func (s *Service) WritePaper(ctx context.Context, req WriteRequest) (any, error)
 	return WriteResult{Status: "completed", RunID: ws.RunID, Workspace: ws.Root, PDFPath: pdf, Title: decision.FinalTitle, Rounds: records, FinalScore: final, StopReason: stopReason, TODOPath: ws.TODOPath, ReviewPath: reviewPath, PositioningPath: ws.PositioningPath}, nil
 }
 
-func round4(v float64) float64 { return math.Round(v*10000) / 10000 }
+// round4 matches Python's round(value, 4): the exact binary value is rounded to
+// four decimal digits, with genuine ties broken toward even. Scaling by 10000
+// first double-rounds (Python's round(0.00005, 4) is 0.0001, not 0.0), so the
+// rounding is done by the decimal formatter instead.
+func round4(v float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return v
+	}
+	rounded, err := strconv.ParseFloat(strconv.FormatFloat(v, 'f', 4, 64), 64)
+	if err != nil {
+		return v
+	}
+	return rounded
+}
 func composeReview(bundle *CritiqueBundle, records []RoundRecord, stop, todo string) string {
 	majors := []string{}
 	fidelity := []string{}

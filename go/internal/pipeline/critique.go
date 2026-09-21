@@ -33,6 +33,9 @@ func (s *Service) PersonaReview(ctx context.Context, in PersonaReviewInput) (any
 	system, user := prompts.PersonaReviewPrompt(in.Persona, in.RoundNo, paper)
 	result, err := aiInto[PersonaReview](ctx, s, system, user, stringValue(in.Model))
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return PersonaReview{Persona: in.Persona, Issues: []LocatedIssue{}, AcceptanceRisk: .5, Verdict: "persona review crashed: " + err.Error()}, nil
 	}
 	result.Persona = in.Persona
@@ -46,6 +49,9 @@ func (s *Service) NarrativeReview(ctx context.Context, in NarrativeReviewInput) 
 	system, user := prompts.NarrativeReviewPrompt(in.RoundNo, positioning, blueprint, paper)
 	result, err := aiInto[NarrativeReview](ctx, s, system, user, stringValue(in.Model))
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return NarrativeReview{TransitionIssues: []LocatedIssue{}, PromiseAlignmentIssues: []string{}, ArcAssessment: "narrative review crashed: " + err.Error(), Score: .5}, nil
 	}
 	return result, nil
@@ -93,6 +99,9 @@ func (s *Service) FidelityAudit(ctx context.Context, in FidelityAuditInput) (any
 	system, user := prompts.FidelityAuditPrompt(in.RoundNo, evidence, bib, paper)
 	result, err := aiInto[FidelityAudit](ctx, s, system, user, stringValue(in.Model))
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return FidelityAudit{UnsupportedClaims: []string{"fidelity audit crashed: " + err.Error()}, NumberMismatches: []string{}, CitationIssues: []string{}, Blocking: true, Score: 0}, nil
 	}
 	for _, key := range inventedCiteKeys(paper, bib) {
@@ -126,6 +135,9 @@ func (s *Service) RunCritique(ctx context.Context, in RunCritiqueInput) (any, er
 		g.Go(func() error {
 			v, err := callInto[PersonaReview](gctx, s, "critique_persona_review", PersonaReviewInput{Workspace: in.Workspace, Persona: persona.Brief, RoundNo: in.RoundNo, Model: in.Model})
 			if err != nil {
+				if gctx.Err() != nil {
+					return gctx.Err()
+				}
 				mu.Lock()
 				hadErr = true
 				mu.Unlock()
@@ -139,6 +151,9 @@ func (s *Service) RunCritique(ctx context.Context, in RunCritiqueInput) (any, er
 	g.Go(func() error {
 		v, err := callInto[NarrativeReview](gctx, s, "critique_narrative_review", in)
 		if err != nil {
+			if gctx.Err() != nil {
+				return gctx.Err()
+			}
 			mu.Lock()
 			hadErr = true
 			mu.Unlock()
@@ -150,6 +165,9 @@ func (s *Service) RunCritique(ctx context.Context, in RunCritiqueInput) (any, er
 	g.Go(func() error {
 		v, err := callInto[FidelityAudit](gctx, s, "critique_fidelity_audit", in)
 		if err != nil {
+			if gctx.Err() != nil {
+				return gctx.Err()
+			}
 			mu.Lock()
 			hadErr = true
 			mu.Unlock()
@@ -158,29 +176,39 @@ func (s *Service) RunCritique(ctx context.Context, in RunCritiqueInput) (any, er
 		fidelity = v
 		return nil
 	})
-	_ = g.Wait()
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
 	slop := SlopLint(in.Workspace.PaperDir)
 	confident := !hadErr && narrative.Confident && fidelity.Confident
 	for _, r := range reviews {
 		confident = confident && r.Confident
 	}
 	bundle := CritiqueBundle{Round: in.RoundNo, PersonaReviews: reviews, Narrative: narrative, Fidelity: fidelity, Slop: slop, Confident: confident}
-	writeRoundArtifacts(in.Workspace, bundle)
+	if err := writeRoundArtifacts(in.Workspace, bundle); err != nil {
+		return nil, err
+	}
 	return bundle, nil
 }
 
-func writeRoundArtifacts(ws Workspace, b CritiqueBundle) {
+func writeRoundArtifacts(ws Workspace, b CritiqueBundle) error {
 	dir := filepath.Join(ws.ReviewsDir, fmt.Sprintf("round_%d", b.Round))
 	for i, r := range b.PersonaReviews {
 		slug := prompts.Personas[i].Slug
-		body := fmt.Sprintf("# Persona review — %s (round %d)\n\n**Acceptance risk:** %.3f  \n**Confident:** %t\n\n## Verdict\n\n%s\n\n## Issues\n\n%s\n", slug, b.Round, r.AcceptanceRisk, r.Confident, defaultText(r.Verdict, "_none_"), issueTable(r.Issues))
-		_, _ = WriteText(filepath.Join(dir, slug+".md"), body)
+		body := fmt.Sprintf("# Persona review — %s (round %d)\n\n**Acceptance risk:** %.3f  \n**Confident:** %s\n\n## Verdict\n\n%s\n\n## Issues\n\n%s\n", slug, b.Round, r.AcceptanceRisk, pythonBool(r.Confident), defaultText(r.Verdict, "_none_"), issueTable(r.Issues))
+		if _, err := WriteText(filepath.Join(dir, slug+".md"), body); err != nil {
+			return err
+		}
 	}
 	promise := bullets(b.Narrative.PromiseAlignmentIssues, "_None._")
-	narr := fmt.Sprintf("# Narrative review (round %d)\n\n**Score:** %.3f  \n**Confident:** %t\n\n## Arc assessment\n\n%s\n\n## Promise alignment issues\n\n%s\n\n## Transition issues\n\n%s\n", b.Round, b.Narrative.Score, b.Narrative.Confident, defaultText(b.Narrative.ArcAssessment, "_none_"), promise, issueTable(b.Narrative.TransitionIssues))
-	_, _ = WriteText(filepath.Join(dir, "narrative.md"), narr)
-	fid := fmt.Sprintf("# Fidelity audit (round %d)\n\n**Blocking:** %t  \n**Score:** %.3f  \n**Confident:** %t\n\n## Unsupported claims\n\n%s\n\n## Number mismatches\n\n%s\n\n## Citation issues\n\n%s\n", b.Round, b.Fidelity.Blocking, b.Fidelity.Score, b.Fidelity.Confident, bullets(b.Fidelity.UnsupportedClaims, "_None._"), bullets(b.Fidelity.NumberMismatches, "_None._"), bullets(b.Fidelity.CitationIssues, "_None._"))
-	_, _ = WriteText(filepath.Join(dir, "fidelity.md"), fid)
+	narr := fmt.Sprintf("# Narrative review (round %d)\n\n**Score:** %.3f  \n**Confident:** %s\n\n## Arc assessment\n\n%s\n\n## Promise alignment issues\n\n%s\n\n## Transition issues\n\n%s\n", b.Round, b.Narrative.Score, pythonBool(b.Narrative.Confident), defaultText(b.Narrative.ArcAssessment, "_none_"), promise, issueTable(b.Narrative.TransitionIssues))
+	if _, err := WriteText(filepath.Join(dir, "narrative.md"), narr); err != nil {
+		return err
+	}
+	fid := fmt.Sprintf("# Fidelity audit (round %d)\n\n**Blocking:** %s  \n**Score:** %.3f  \n**Confident:** %s\n\n## Unsupported claims\n\n%s\n\n## Number mismatches\n\n%s\n\n## Citation issues\n\n%s\n", b.Round, pythonBool(b.Fidelity.Blocking), b.Fidelity.Score, pythonBool(b.Fidelity.Confident), bullets(b.Fidelity.UnsupportedClaims, "_None._"), bullets(b.Fidelity.NumberMismatches, "_None._"), bullets(b.Fidelity.CitationIssues, "_None._"))
+	if _, err := WriteText(filepath.Join(dir, "fidelity.md"), fid); err != nil {
+		return err
+	}
 	grouped := map[string][]SlopViolation{}
 	for _, violation := range b.Slop.Violations {
 		grouped[violation.Rule] = append(grouped[violation.Rule], violation)
@@ -201,8 +229,11 @@ func writeRoundArtifacts(ws Workspace, b CritiqueBundle) {
 			parts = append(parts, fmt.Sprintf("- `%s:%d` — %s", violation.File, violation.Line, mdCell(violation.Excerpt)))
 		}
 	}
-	_, _ = WriteText(filepath.Join(dir, "slop.md"), strings.Join(parts, "\n")+"\n")
-	_, _ = WriteText(filepath.Join(dir, "bundle.json"), prettyJSON(b))
+	if _, err := WriteText(filepath.Join(dir, "slop.md"), strings.Join(parts, "\n")+"\n"); err != nil {
+		return err
+	}
+	_, err := WriteText(filepath.Join(dir, "bundle.json"), prettyJSON(b))
+	return err
 }
 
 func issueTable(issues []LocatedIssue) string {
@@ -240,10 +271,19 @@ func defaultText(v, d string) string {
 	return v
 }
 func truncate(v string, n int) string {
-	if n > 0 && len(v) > n {
-		return v[:n]
+	if n > 0 {
+		runes := []rune(v)
+		if len(runes) > n {
+			return string(runes[:n])
+		}
 	}
 	return v
+}
+func pythonBool(v bool) string {
+	if v {
+		return "True"
+	}
+	return "False"
 }
 func stringValue(v *string) string {
 	if v == nil {

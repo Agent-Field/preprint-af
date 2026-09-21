@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -57,7 +58,44 @@ func aiInto[T any](ctx context.Context, s *Service, system, user, model string) 
 }
 
 func aiSchema[T any]() (json.RawMessage, error) {
-	return reflectedSchema[T](false)
+	raw, err := reflectedSchema[T](false)
+	if err != nil {
+		return nil, err
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return nil, err
+	}
+	strictifySchema(schema)
+	return json.Marshal(schema)
+}
+
+func harnessSchema[T any]() (json.RawMessage, error) { return reflectedSchema[T](true) }
+
+// strictifySchema mirrors the Python SDK's _strictify_openai_schema: strict
+// response_format schemas require closed objects with every property listed.
+func strictifySchema(value any) {
+	switch node := value.(type) {
+	case map[string]any:
+		for _, child := range node {
+			strictifySchema(child)
+		}
+		if properties, ok := node["properties"].(map[string]any); ok {
+			if kind, hasType := node["type"]; !hasType || kind == "object" {
+				required := make([]string, 0, len(properties))
+				for name := range properties {
+					required = append(required, name)
+				}
+				sort.Strings(required)
+				node["additionalProperties"] = false
+				node["required"] = required
+			}
+		}
+	case []any:
+		for _, child := range node {
+			strictifySchema(child)
+		}
+	}
 }
 
 func reflectedSchema[T any](allowAdditionalProperties bool) (json.RawMessage, error) {
@@ -91,7 +129,7 @@ func harnessInto[T any](ctx context.Context, s *Service, prompt, model, cwd, pro
 		return zero, nil, err
 	}
 	defer s.releaseHarness()
-	rawSchema, err := aiSchema[T]()
+	rawSchema, err := harnessSchema[T]()
 	if err != nil {
 		return zero, nil, err
 	}
@@ -356,4 +394,26 @@ func prettyJSON(v any) string {
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(v)
 	return strings.TrimSuffix(out.String(), "\n")
+}
+
+// pythonPrettyJSON matches json.dumps(..., indent=2, default=str): Python keeps
+// HTML punctuation literal but escapes every non-ASCII code point.
+func pythonPrettyJSON(v any) string {
+	input := prettyJSON(v)
+	var out strings.Builder
+	for _, r := range input {
+		if r <= 0x7f {
+			out.WriteRune(r)
+			continue
+		}
+		if r <= 0xffff {
+			fmt.Fprintf(&out, `\u%04x`, r)
+			continue
+		}
+		value := r - 0x10000
+		high := 0xd800 + (value >> 10)
+		low := 0xdc00 + (value & 0x3ff)
+		fmt.Fprintf(&out, `\u%04x\u%04x`, high, low)
+	}
+	return out.String()
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -12,6 +13,8 @@ import (
 )
 
 const maxRepairTasks = 8
+
+var repairSectionRE = regexp.MustCompile(`\d+_([a-z0-9_]+)\.tex`)
 
 type PlanRepairsInput struct {
 	Workspace Workspace      `json:"workspace"`
@@ -37,10 +40,16 @@ type compactPersona struct {
 	Issues         []LocatedIssue `json:"issues"`
 }
 
+type compactTransitionIssue struct {
+	Section string `json:"section"`
+	Issue   string `json:"issue"`
+	FixHint string `json:"fix_hint"`
+}
+
 type compactNarrative struct {
-	TransitionIssues       []LocatedIssue `json:"transition_issues"`
-	PromiseAlignmentIssues []string       `json:"promise_alignment_issues"`
-	ArcAssessment          string         `json:"arc_assessment"`
+	TransitionIssues       []compactTransitionIssue `json:"transition_issues"`
+	PromiseAlignmentIssues []string                 `json:"promise_alignment_issues"`
+	ArcAssessment          string                   `json:"arc_assessment"`
 }
 
 type compactFidelity struct {
@@ -53,17 +62,24 @@ type compactFidelity struct {
 func compactCritique(c CritiqueBundle) compactReview {
 	personas := make([]compactPersona, 0, len(c.PersonaReviews))
 	for _, pr := range c.PersonaReviews {
-		kept := []LocatedIssue{}
-		minors := 0
+		majors := []LocatedIssue{}
+		minors := []LocatedIssue{}
 		for _, x := range pr.Issues {
 			if strings.EqualFold(x.Severity, "major") {
-				kept = append(kept, x)
-			} else if minors < 3 {
-				kept = append(kept, x)
-				minors++
+				majors = append(majors, x)
+			} else {
+				minors = append(minors, x)
 			}
 		}
+		if len(minors) > 3 {
+			minors = minors[:3]
+		}
+		kept := append(majors, minors...)
 		personas = append(personas, compactPersona{AcceptanceRisk: pr.AcceptanceRisk, Verdict: pr.Verdict, Issues: kept})
+	}
+	transitions := make([]compactTransitionIssue, len(c.Narrative.TransitionIssues))
+	for i, issue := range c.Narrative.TransitionIssues {
+		transitions[i] = compactTransitionIssue{Section: issue.Section, Issue: issue.Issue, FixHint: issue.FixHint}
 	}
 	slop := make([]string, 0, len(c.Slop.Violations))
 	for _, v := range c.Slop.Violations {
@@ -72,7 +88,7 @@ func compactCritique(c CritiqueBundle) compactReview {
 	return compactReview{
 		Personas: personas,
 		Narrative: compactNarrative{
-			TransitionIssues:       c.Narrative.TransitionIssues,
+			TransitionIssues:       transitions,
 			PromiseAlignmentIssues: c.Narrative.PromiseAlignmentIssues,
 			ArcAssessment:          c.Narrative.ArcAssessment,
 		},
@@ -123,9 +139,10 @@ func synthesizePlan(c CritiqueBundle, reason string) RepairPlan {
 	}
 	for _, v := range c.Slop.Violations {
 		target := "global"
-		base := filepath.Base(v.File)
-		if i := strings.Index(base, "_"); i >= 0 && strings.HasSuffix(base, ".tex") {
-			target = strings.TrimSuffix(base[i+1:], ".tex")
+		if strings.Contains(filepath.ToSlash(v.File), "sections/") {
+			if match := repairSectionRE.FindStringSubmatch(v.File); len(match) == 2 {
+				target = match[1]
+			}
 		}
 		add(target, fmt.Sprintf("Slop violation, apply mechanically: %s:%d %s — %s", v.File, v.Line, v.Rule, v.Excerpt))
 	}
@@ -162,9 +179,12 @@ func synthesizePlan(c CritiqueBundle, reason string) RepairPlan {
 
 func (s *Service) PlanRepairs(ctx context.Context, in PlanRepairsInput) (any, error) {
 	compact := compactCritique(in.Critique)
-	system, user := prompts.RepairPlanPrompt(prettyJSON(compact))
+	system, user := prompts.RepairPlanPrompt(pythonPrettyJSON(compact))
 	result, err := aiInto[RepairPlan](ctx, s, system, user, stringValue(in.Model))
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		if critiqueDirty(in.Critique) {
 			return synthesizePlan(in.Critique, "planner crashed: "+err.Error()), nil
 		}
@@ -197,8 +217,6 @@ func resolveRepair(task RepairTask, ws Workspace) ([]string, []string) {
 		return []string{"paper/figures/ (figure scripts and their pdfs)"}, []string{"paper/figures/"}
 	case "bibliography":
 		return []string{"paper/refs.bib", "paper/CITATIONS_LOG.md"}, []string{"paper/refs.bib", "paper/CITATIONS_LOG.md"}
-	case "global":
-		return []string{"paper/sections/ (any section file needed to resolve the findings)"}, []string{"paper/sections/", "paper/main.tex"}
 	}
 	matches, _ := filepath.Glob(filepath.Join(ws.SectionsDir, "*_"+task.Target+".tex"))
 	if len(matches) > 0 {
@@ -208,6 +226,9 @@ func resolveRepair(task RepairTask, ws Workspace) ([]string, []string) {
 			rels[i] = filepath.ToSlash(r)
 		}
 		return rels, rels
+	}
+	if task.Target == "global" {
+		return []string{"paper/sections/ (any section file needed to resolve the findings)"}, []string{"paper/sections/", "paper/main.tex"}
 	}
 	return []string{"paper/sections/NN_" + task.Target + ".tex"}, []string{"paper/sections/*_" + task.Target + ".tex", "paper/sections/"}
 }
@@ -228,11 +249,14 @@ func changedMatches(changed []string, patterns []string) bool {
 	return false
 }
 
-func (s *Service) runRepair(ctx context.Context, ws Workspace, t RepairTask, model *string) bool {
+func (s *Service) runRepair(ctx context.Context, ws Workspace, t RepairTask, model *string) (bool, error) {
 	files, _ := resolveRepair(t, ws)
 	prompt := prompts.RepairTaskPrompt(files, t.Instructions)
 	_, hr, err := harnessInto[WorkerResult](ctx, s, prompt, stringValue(model), ws.Root, ws.Root)
-	return err == nil && hr != nil && !hr.IsError
+	if err != nil && ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	return err == nil && hr != nil && !hr.IsError, nil
 }
 
 func (s *Service) ApplyRepairs(ctx context.Context, in ApplyRepairsInput) (any, error) {
@@ -252,7 +276,10 @@ func (s *Service) ApplyRepairs(ctx context.Context, in ApplyRepairsInput) (any, 
 	if len(front) > 0 {
 		task := front[0]
 		before := GitChangedFiles(in.Workspace.Root)
-		harnessOK := s.runRepair(ctx, in.Workspace, task, in.Model)
+		harnessOK, err := s.runRepair(ctx, in.Workspace, task, in.Model)
+		if err != nil {
+			return nil, err
+		}
 		after := GitChangedFiles(in.Workspace.Root)
 		_, patterns := resolveRepair(task, in.Workspace)
 		if harnessOK && changedMatches(newChangedFiles(before, after), patterns) {
@@ -266,11 +293,14 @@ func (s *Service) ApplyRepairs(ctx context.Context, in ApplyRepairsInput) (any, 
 		for i, task := range rest {
 			i, task := i, task
 			g.Go(func() error {
-				results[i] = s.runRepair(ctx, in.Workspace, task, in.Model)
-				return nil
+				var err error
+				results[i], err = s.runRepair(ctx, in.Workspace, task, in.Model)
+				return err
 			})
 		}
-		_ = g.Wait()
+		if err := g.Wait(); err != nil {
+			return nil, err
+		}
 		newly := newChangedFiles(before, GitChangedFiles(in.Workspace.Root))
 		for i, task := range rest {
 			_, patterns := resolveRepair(task, in.Workspace)

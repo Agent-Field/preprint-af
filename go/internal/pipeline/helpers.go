@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -117,11 +118,16 @@ func ReadText(path string, limit ...int) string {
 	}
 	text := strings.ToValidUTF8(string(data), "")
 	// Go callers use 0 as the natural "no cap" sentinel.
-	if len(limit) > 0 && limit[0] > 0 && len(text) > limit[0] {
-		return text[:limit[0]]
+	if len(limit) > 0 && limit[0] > 0 {
+		runes := []rune(text)
+		if len(runes) > limit[0] {
+			return string(runes[:limit[0]])
+		}
 	}
 	return text
 }
+
+func textLen(text string) int { return len([]rune(text)) }
 
 func WriteText(path, content string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -184,11 +190,7 @@ func AssemblePaperText(paperDir string) string {
 }
 
 func SaveState(root string, state any) error {
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	_, err = WriteText(filepath.Join(root, "STATE.json"), string(data))
+	_, err := WriteText(filepath.Join(root, "STATE.json"), pythonPrettyJSON(state))
 	return err
 }
 
@@ -250,7 +252,7 @@ func GitChangedFiles(root string) []string {
 }
 
 func CreateWorkspace(folderPath string) (Workspace, error) {
-	source, err := filepath.Abs(folderPath)
+	source, err := filepath.Abs(expandUser(folderPath))
 	if err != nil {
 		return Workspace{}, err
 	}
@@ -286,6 +288,20 @@ func CreateWorkspace(folderPath string) (Workspace, error) {
 		SourceFolder: source, InputFiles: listInputFiles(inputDir),
 		HasExistingDraft: detectExistingDraft(inputDir), HasDataFiles: detectDataFiles(inputDir),
 	}, nil
+}
+
+func expandUser(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, `~\`) {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if path == "~" {
+		return home
+	}
+	return filepath.Join(home, path[2:])
 }
 
 func randomHex(bytes int) (string, error) {
@@ -374,7 +390,7 @@ func detectExistingDraft(inputDir string) bool {
 			return nil
 		}
 		text := ReadText(path)
-		if len(text) <= 2000 {
+		if textLen(text) <= 2000 {
 			return nil
 		}
 		if (ext == ".md" && regexp.MustCompile(`(?m)^#{1,6}\s+\S`).MatchString(text)) ||
@@ -413,22 +429,16 @@ func RunLatexmk(paperDir string, timeout ...time.Duration) (bool, string, string
 	if len(timeout) > 0 {
 		limit = timeout[0]
 	}
-	command := exec.Command("latexmk", "-pdf", "-interaction=nonstopmode", "-f", "main.tex")
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+	command := exec.CommandContext(ctx, "latexmk", "-pdf", "-interaction=nonstopmode", "-f", "main.tex")
 	command.Dir = paperDir
-	timedOut := false
-	timer := time.AfterFunc(limit, func() {
-		timedOut = true
-		if command.Process != nil {
-			_ = command.Process.Kill()
-		}
-	})
 	err := command.Run()
-	timer.Stop()
 	pdfPath := ""
 	if _, statErr := os.Stat(pdf); statErr == nil {
 		pdfPath = pdf
 	}
-	if timedOut {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		excerpt := latexLogExcerpt(paperDir)
 		if excerpt == "" {
 			excerpt = "latexmk timed out"
@@ -459,10 +469,7 @@ func latexLogExcerpt(paperDir string) string {
 		matched = matched[len(matched)-60:]
 	}
 	excerpt := strings.Join(matched, "\n")
-	if len(excerpt) > 4000 {
-		excerpt = excerpt[:4000]
-	}
-	return excerpt
+	return truncate(excerpt, 4000)
 }
 
 func StyleContractMarkdown() string {
@@ -732,7 +739,7 @@ func deadProseLines(raw string) []numberedLine {
 			}
 			after := strings.TrimSpace(text[pos+1:])
 			after = regexp.MustCompile(`^(E\d+[\s,%E\d]*)?`).ReplaceAllString(after, "")
-			if len(after) >= 15 && letters.MatchString(after) {
+			if textLen(after) >= 15 && letters.MatchString(after) {
 				result = append(result, numberedLine{index + 1, text})
 			}
 			break
@@ -748,10 +755,7 @@ func slugOf(path string) string {
 
 func excerpt(text string) string {
 	text = strings.TrimSpace(text)
-	if len(text) > 120 {
-		return text[:120]
-	}
-	return text
+	return truncate(text, 120)
 }
 
 func violation(rel string, line int, rule, text string) SlopViolation {

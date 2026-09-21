@@ -27,11 +27,12 @@ func (s *Service) PrepareWorkspace(_ context.Context, in PrepareWorkspaceInput) 
 func (s *Service) BuildEvidenceLedger(ctx context.Context, in BuildEvidenceInput) (any, error) {
 	prompt := prompts.EvidencePrompt(promptWorkspace(in.Workspace), FigurePython())
 	summary, hr, err := harnessInto[EvidenceSummary](ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
-	if err != nil || hr == nil || hr.IsError || hr.Parsed == nil || !FileExists(in.Workspace.EvidencePath) || len(ReadText(in.Workspace.EvidencePath, 0)) < 500 {
+	if err != nil {
+		return nil, err
+	}
+	if hr == nil || hr.IsError || hr.Parsed == nil || !FileExists(in.Workspace.EvidencePath) || textLen(ReadText(in.Workspace.EvidencePath, 0)) < 500 {
 		reason := "EVIDENCE.md missing, too small, or unparsed"
-		if err != nil {
-			reason = err.Error()
-		} else if hr != nil && hr.IsError {
+		if hr != nil && hr.IsError {
 			reason = hr.ErrorMessage
 		}
 		fallback := NewEvidenceSummary()
@@ -39,7 +40,9 @@ func (s *Service) BuildEvidenceLedger(ctx context.Context, in BuildEvidenceInput
 		return fallback, nil
 	}
 	if len(summary.Gaps) > 0 {
-		AppendTODOs(in.Workspace.TODOPath, summary.Gaps)
+		if err := AppendTODOs(in.Workspace.TODOPath, summary.Gaps); err != nil {
+			return nil, err
+		}
 	}
 	fmt.Printf("[intake] evidence ledger done facts=%d figure_candidates=%d gaps=%d\n", summary.FactCount, len(summary.FigureCandidates), len(summary.Gaps))
 	return summary, nil

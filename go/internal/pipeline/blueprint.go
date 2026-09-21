@@ -91,7 +91,9 @@ func (s *Service) DesignBlueprint(ctx context.Context, in DesignBlueprintInput) 
 			bp.Sections[i].TargetWords = 400
 		}
 	}
-	writeBlueprint(in.Workspace.BlueprintPath, bp)
+	if err := writeBlueprint(in.Workspace.BlueprintPath, bp); err != nil {
+		return nil, err
+	}
 	title, abstract := parseFrontMatter(positioning)
 	if title == "" {
 		title = "Untitled Draft"
@@ -107,7 +109,7 @@ func (s *Service) DesignBlueprint(ctx context.Context, in DesignBlueprintInput) 
 	return bp, nil
 }
 
-func writeBlueprint(path string, b Blueprint) {
+func writeBlueprint(path string, b Blueprint) error {
 	var out strings.Builder
 	out.WriteString("# Blueprint\n\n## Sections\n\n| # | slug | heading | beats | establishes | requires | evidence | figures |\n|---|------|---------|-------|-------------|----------|----------|---------|\n")
 	for _, s := range b.Sections {
@@ -126,7 +128,8 @@ func writeBlueprint(path string, b Blueprint) {
 	out.WriteString("\n\n## Venue notes\n\n")
 	out.WriteString(defaultText(b.VenueNotes, "(none)"))
 	out.WriteByte('\n')
-	_, _ = WriteText(path, out.String())
+	_, err := WriteText(path, out.String())
+	return err
 }
 func cell(v string) string {
 	return strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(v, "\n", " "), "|", "\\|"))

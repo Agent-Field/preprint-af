@@ -100,6 +100,9 @@ func (s *Service) GenerateFrames(ctx context.Context, in GenerateFramesInput) (a
 	system, user := prompts.FrameGenerationPrompts(stringValue(in.TargetVenue), stringValue(in.FieldHint), evidence)
 	out, err := aiInto[FrameSet](ctx, s, system, user, stringValue(in.Model))
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return FrameSet{Frames: []StoryFrame{}, GenerationRationale: "frame generation failed: " + err.Error()}, nil
 	}
 	return out, nil
@@ -116,6 +119,9 @@ func (s *Service) JudgeFrame(ctx context.Context, in JudgeFrameInput) (any, erro
 	system, user := prompts.JudgeFramePrompts(frame, in.EvidenceDigest, in.Persona, stringValue(in.TargetVenue))
 	out, err := aiInto[FrameJudgment](ctx, s, system, user, stringValue(in.Model))
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return FrameJudgment{FrameName: frame.Name, Persona: in.Persona, Concerns: []string{}}, nil
 	}
 	return out, nil
@@ -136,8 +142,11 @@ func (s *Service) ScanNovelty(ctx context.Context, in ScanNoveltyInput) (any, er
 	}
 	prompt := prompts.NoveltyScanPrompt(in.Workspace.Root, frames)
 	out, hr, err := harnessInto[NoveltyScan](ctx, s, prompt, stringValue(in.Model), in.Workspace.Root, in.Workspace.Root)
+	if err != nil {
+		return nil, err
+	}
 	scan := filepath.Join(in.Workspace.Root, "POSITIONING_SCAN.md")
-	if err != nil || hr == nil || hr.IsError || hr.Parsed == nil || !FileExists(scan) {
+	if hr == nil || hr.IsError || hr.Parsed == nil || !FileExists(scan) {
 		return NewNoveltyScan(), nil
 	}
 	return out, nil
@@ -205,9 +214,14 @@ func (s *Service) RunPositioning(ctx context.Context, in RunPositioningInput) (a
 	system, user := prompts.MetaSelectionPrompts(stringValue(in.TargetVenue), stringValue(in.FieldHint), pf, pj, pn)
 	decision, e := aiInto[PositioningDecision](ctx, s, system, user, stringValue(in.Model))
 	if e != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		decision = fallbackDecision(frames, judgments)
 	}
-	writePositioning(in.Workspace, decision, frames, judgments, novelty)
+	if err := writePositioning(in.Workspace, decision, frames, judgments, novelty); err != nil {
+		return nil, err
+	}
 	GitSnapshot(in.Workspace.Root, "P1 positioning decided")
 	return decision, nil
 }
@@ -245,21 +259,40 @@ func fallbackDecision(frames []StoryFrame, judgments []FrameJudgment) Positionin
 	return PositioningDecision{WinningFrameName: best.Name, FinalTitle: best.Title, FinalAbstract: best.MiniAbstract, OpeningThesis: best.CentralThesis, ContributionOrder: best.ContributionOrder, RejectedAlternatives: rej, SelectionRationale: fmt.Sprintf("Meta-selection call failed; fell back to the frame with the highest mean reader judgment (%.3f).", bestMean), Score: clamp(bestMean)}
 }
 
-func writePositioning(ws Workspace, d PositioningDecision, frames []StoryFrame, judgments []FrameJudgment, n NoveltyScan) {
+func writePositioning(ws Workspace, d PositioningDecision, frames []StoryFrame, judgments []FrameJudgment, n NoveltyScan) error {
 	contrib := numbered(d.ContributionOrder, "1. (none specified)")
 	rejected := bullets(d.RejectedAlternatives, "- (none)")
 	var table strings.Builder
 	table.WriteString("| Frame | Persona | Comprehension | Excitement | Credibility | Naturalness |\n| --- | --- | --- | --- | --- | --- |\n")
-	for _, f := range frames {
-		for _, j := range judgments {
-			if j.FrameName == f.Name {
-				p := strings.Split(j.Persona, ",")[0]
-				fmt.Fprintf(&table, "| %s | %s | %.2f | %.2f | %.2f | %.2f |\n", j.FrameName, strings.TrimSpace(p), j.Comprehension, j.Excitement, j.Credibility, j.Naturalness)
-			}
-		}
+	order := make(map[string]int, len(frames))
+	for i, frame := range frames {
+		order[frame.Name] = i
 	}
-	body := fmt.Sprintf("# Title: %s\n\n## Final abstract\n\n%s\n\n## Opening thesis\n\n%s\n\n## Contribution order\n\n%s\n\n## Winning frame: %s\n\n%s\n\n## Judgments\n\n%s\n## Rejected alternatives\n\n%s\n\n## Novelty scan\n\nConfident: %t\n\nClosest related titles:\n%s\n\nCollision risks:\n%s\n\nOpen positioning angles:\n%s\n", d.FinalTitle, d.FinalAbstract, d.OpeningThesis, contrib, d.WinningFrameName, d.SelectionRationale, table.String(), rejected, n.Confident, bullets(n.ClosestTitles, "- (none found)"), bullets(n.CollisionRisks, "- (none identified)"), bullets(n.PositioningOpenings, "- (none identified)"))
-	_, _ = WriteText(ws.PositioningPath, body)
+	rows := append([]FrameJudgment(nil), judgments...)
+	sort.SliceStable(rows, func(i, j int) bool {
+		left, ok := order[rows[i].FrameName]
+		if !ok {
+			left = len(order)
+		}
+		right, ok := order[rows[j].FrameName]
+		if !ok {
+			right = len(order)
+		}
+		if left != right {
+			return left < right
+		}
+		return rows[i].Persona < rows[j].Persona
+	})
+	for _, judgment := range rows {
+		persona := strings.Split(judgment.Persona, ",")[0]
+		fmt.Fprintf(&table, "| %s | %s | %.2f | %.2f | %.2f | %.2f |\n", judgment.FrameName, strings.TrimSpace(persona), judgment.Comprehension, judgment.Excitement, judgment.Credibility, judgment.Naturalness)
+	}
+	if len(rows) == 0 {
+		table.WriteString("| (none) | (none) | 0.00 | 0.00 | 0.00 | 0.00 |\n")
+	}
+	body := fmt.Sprintf("# Title: %s\n\n## Final abstract\n\n%s\n\n## Opening thesis\n\n%s\n\n## Contribution order\n\n%s\n\n## Winning frame: %s\n\n%s\n\n## Judgments\n\n%s\n## Rejected alternatives\n\n%s\n\n## Novelty scan\n\nConfident: %s\n\nClosest related titles:\n%s\n\nCollision risks:\n%s\n\nOpen positioning angles:\n%s\n", d.FinalTitle, d.FinalAbstract, d.OpeningThesis, contrib, d.WinningFrameName, d.SelectionRationale, table.String(), rejected, pythonBool(n.Confident), bullets(n.ClosestTitles, "- (none found)"), bullets(n.CollisionRisks, "- (none identified)"), bullets(n.PositioningOpenings, "- (none identified)"))
+	_, err := WriteText(ws.PositioningPath, body)
+	return err
 }
 func clamp(x float64) float64 {
 	if x < 0 {

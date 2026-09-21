@@ -12,7 +12,9 @@ func TestCompactRepairJSONMatchesReferenceBytes(t *testing.T) {
 			}},
 		}},
 		Narrative: NarrativeReview{
-			TransitionIssues:       []LocatedIssue{},
+			TransitionIssues: []LocatedIssue{{
+				Section: "discussion", Issue: "Jump", FixHint: "Bridge", Severity: "major",
+			}},
 			PromiseAlignmentIssues: []string{"abstract > body"},
 			ArcAssessment:          "A & B",
 		},
@@ -42,7 +44,13 @@ func TestCompactRepairJSONMatchesReferenceBytes(t *testing.T) {
     }
   ],
   "narrative": {
-    "transition_issues": [],
+    "transition_issues": [
+      {
+        "section": "discussion",
+        "issue": "Jump",
+        "fix_hint": "Bridge"
+      }
+    ],
     "promise_alignment_issues": [
       "abstract > body"
     ],
@@ -59,10 +67,31 @@ func TestCompactRepairJSONMatchesReferenceBytes(t *testing.T) {
     ]
   },
   "slop": [
-    "paper/sections/03_results.tex:7 symbol — x < y & z"
+    "paper/sections/03_results.tex:7 symbol \u2014 x < y & z"
   ]
 }`
-	if got := prettyJSON(compactCritique(critique)); got != want {
+	if got := pythonPrettyJSON(compactCritique(critique)); got != want {
 		t.Fatalf("repair critique JSON drifted from reference bytes\n--- Go ---\n%s\n--- Golden ---\n%s", got, want)
+	}
+}
+
+func TestCompactRepairOrdersMajorsBeforeFirstThreeMinors(t *testing.T) {
+	critique := CritiqueBundle{PersonaReviews: []PersonaReview{{Issues: []LocatedIssue{
+		{Issue: "minor one", Severity: "minor"},
+		{Issue: "major one", Severity: "major"},
+		{Issue: "minor two", Severity: "minor"},
+		{Issue: "minor three", Severity: "minor"},
+		{Issue: "minor four", Severity: "minor"},
+		{Issue: "major two", Severity: "MAJOR"},
+	}}}}
+	issues := compactCritique(critique).Personas[0].Issues
+	want := []string{"major one", "major two", "minor one", "minor two", "minor three"}
+	if len(issues) != len(want) {
+		t.Fatalf("kept %d issues, want %d", len(issues), len(want))
+	}
+	for i := range want {
+		if issues[i].Issue != want[i] {
+			t.Fatalf("issue %d = %q, want %q", i, issues[i].Issue, want[i])
+		}
 	}
 }
