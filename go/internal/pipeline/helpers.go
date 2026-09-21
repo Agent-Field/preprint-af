@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -139,7 +140,16 @@ func WriteText(path, content string) (string, error) {
 	return path, nil
 }
 
+// todoMu serialises TODO.md read-modify-writes. Python appends inside a single
+// synchronous helper with no await, so the event loop cannot interleave two
+// appends; Go runs the figure workers on real goroutines, where two concurrent
+// appends would each read the old file and the later write would drop the
+// other's bullets.
+var todoMu sync.Mutex
+
 func AppendTODOs(todoPath string, items []string) error {
+	todoMu.Lock()
+	defer todoMu.Unlock()
 	existing := ReadText(todoPath)
 	seen := make(map[string]bool)
 	for _, line := range strings.Split(existing, "\n") {

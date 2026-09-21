@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Agent-Field/agentfield/sdk/go/ai"
@@ -201,5 +203,96 @@ func TestScanNoveltyPropagatesCancellation(t *testing.T) {
 		FrameSet:  map[string]any{"frames": []any{}},
 	}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled scan returned %v, want context.Canceled", err)
+	}
+}
+
+// scriptedApp answers every direct-AI call with a fixed JSON payload.
+type scriptedApp struct{ json string }
+
+func (a scriptedApp) AI(context.Context, string, ...ai.Option) (*ai.Response, error) {
+	return &ai.Response{Choices: []ai.Choice{{Message: ai.Message{
+		Content: []ai.ContentPart{{Type: "text", Text: a.json}},
+	}}}}, nil
+}
+
+func (scriptedApp) Harness(context.Context, string, map[string]any, any, harness.Options) (*harness.Result, error) {
+	return nil, errors.New("not used")
+}
+
+func (scriptedApp) Call(context.Context, string, map[string]any) (map[string]any, error) {
+	return nil, errors.New("not used")
+}
+
+func (scriptedApp) CallLocal(context.Context, string, map[string]any) (any, error) {
+	return nil, errors.New("not used")
+}
+
+func TestFidelityOverlayFlagsEveryInventedKey(t *testing.T) {
+	// Python snapshots citation_issues before appending, so a finding for
+	// "smith2024" cannot suppress the finding for the shorter key "smith".
+	root := t.TempDir()
+	paper := filepath.Join(root, "paper")
+	if err := os.MkdirAll(filepath.Join(paper, "sections"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `\section{R}\cite{smith2024} and \cite{smith}.`
+	if err := os.WriteFile(filepath.Join(paper, "sections", "01_intro.tex"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(paper, "refs.bib"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(scriptedApp{json: `{"unsupported_claims":[],"number_mismatches":[],"citation_issues":[],"blocking":false,"score":1,"confident":true}`}, "preprint-af")
+	out, err := svc.FidelityAudit(context.Background(), FidelityAuditInput{
+		Workspace: Workspace{Root: root, PaperDir: paper},
+		RoundNo:   1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit := out.(FidelityAudit)
+	for _, key := range []string{"smith2024", "smith}"} {
+		found := false
+		for _, issue := range audit.CitationIssues {
+			if strings.Contains(issue, key) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no deterministic finding for %q: %v", key, audit.CitationIssues)
+		}
+	}
+	if !audit.Blocking || audit.Score > .5 {
+		t.Errorf("invented keys must block and cap the score: blocking=%v score=%v", audit.Blocking, audit.Score)
+	}
+}
+
+func TestAppendTODOsIsSafeUnderConcurrentFigureWorkers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "TODO.md")
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if err := AppendTODOs(path, []string{fmt.Sprintf("figure %d is not buildable", i)}); err != nil {
+				t.Error(err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	text := ReadText(path)
+	for i := 0; i < 16; i++ {
+		if !strings.Contains(text, fmt.Sprintf("figure %d is not buildable", i)) {
+			t.Fatalf("concurrent append lost figure %d:\n%s", i, text)
+		}
+	}
+}
+
+func TestTitleFallbackStripsTitlePrefixCaseInsensitively(t *testing.T) {
+	// Python lowercases before comparing: `if title.lower().startswith("title:")`.
+	for _, heading := range []string{"## TITLE: Example", "## Title: Example", "## title: Example"} {
+		if got, _ := parseFrontMatter(heading); got != "Example" {
+			t.Errorf("parseFrontMatter(%q) title = %q, want %q", heading, got, "Example")
+		}
 	}
 }

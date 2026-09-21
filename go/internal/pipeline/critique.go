@@ -104,9 +104,13 @@ func (s *Service) FidelityAudit(ctx context.Context, in FidelityAuditInput) (any
 		}
 		return FidelityAudit{UnsupportedClaims: []string{"fidelity audit crashed: " + err.Error()}, NumberMismatches: []string{}, CitationIssues: []string{}, Blocking: true, Score: 0}, nil
 	}
+	// Python snapshots the model-reported issues before appending any of its own
+	// (critique.py: `flagged = {c for c in result.citation_issues}`), so one
+	// deterministic finding can never suppress the next key's finding.
+	flagged := append([]string(nil), result.CitationIssues...)
 	for _, key := range inventedCiteKeys(paper, bib) {
 		found := false
-		for _, issue := range result.CitationIssues {
+		for _, issue := range flagged {
 			if strings.Contains(issue, key) {
 				found = true
 				break

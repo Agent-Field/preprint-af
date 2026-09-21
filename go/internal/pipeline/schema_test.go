@@ -3,6 +3,7 @@ package pipeline
 import (
 	"encoding/json"
 	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -44,8 +45,14 @@ func TestDirectAISchemaUsesPythonStrictResponseContract(t *testing.T) {
 	if got := schema["additionalProperties"]; got != false {
 		t.Fatalf("direct AI additionalProperties = %#v, want false", got)
 	}
-	if got, want := requiredNames(schema), []string{"confident", "notes", "tasks"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("direct AI required = %v, want %v", got, want)
+	// Python's _strictify_openai_schema sets required = list(properties.keys()),
+	// i.e. every property including the defaulted ones. JSON Schema treats
+	// required as a set, so Go emits the same members sorted rather than in
+	// Pydantic's field-declaration order.
+	got := append([]string(nil), requiredNames(schema)...)
+	sort.Strings(got)
+	if want := []string{"confident", "notes", "tasks"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("direct AI required = %v, want the full property set %v", got, want)
 	}
 }
 

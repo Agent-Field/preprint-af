@@ -41,7 +41,9 @@ func parseFrontMatter(md string) (string, string) {
 			v := strings.TrimSpace(line)
 			if strings.HasPrefix(v, "#") {
 				title = strings.TrimSpace(strings.TrimLeft(v, "#"))
-				title = strings.TrimSpace(strings.TrimPrefix(title, "Title:"))
+				if len(title) >= 6 && strings.EqualFold(title[:6], "title:") {
+					title = strings.TrimSpace(title[6:])
+				}
 				if title != "" {
 					break
 				}
