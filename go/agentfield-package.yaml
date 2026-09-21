@@ -36,6 +36,9 @@ user_environment:
     - name: HARNESS_MAX_BUDGET_USD
       description: Maximum OpenCode budget per worker
       default: "5.00"
+    - name: HARNESS_PERMISSION_MODE
+      description: OpenCode worker permission mode
+      default: auto
     - name: OPENCODE_MAX_CONCURRENT
       description: Maximum concurrent OpenCode workers
       default: "10"
@@ -44,4 +47,7 @@ user_environment:
       default: "1800"
     - name: FIGURE_PYTHON
       description: Optional Python executable with plotting dependencies for native runs
+      default: ""
+    - name: PREPRINT_AF_ROOT
+      description: Optional repository root override for run workspaces
       default: ""

@@ -22,8 +22,15 @@ type Node struct {
 }
 
 func Build() (*Node, error) {
+	// The pinned Go SDK defaults OpenCode to four concurrent processes, while
+	// the reference Python provider defaults to ten and exposes this env knob.
+	if os.Getenv("OPENCODE_MAX_CONCURRENT") == "" {
+		if err := os.Setenv("OPENCODE_MAX_CONCURRENT", "10"); err != nil {
+			return nil, fmt.Errorf("set OpenCode concurrency default: %w", err)
+		}
+	}
 	model := envOr("AI_MODEL", DefaultModel)
-	harnessModel := envOr("OPENCODE_MODEL", model)
+	harnessModel := envOr("OPENCODE_MODEL", DefaultModel)
 	server := envOr("AGENTFIELD_SERVER", "http://localhost:8080")
 	port := envOr("PORT", "8001")
 	key := os.Getenv("OPENROUTER_API_KEY")
@@ -35,6 +42,8 @@ func Build() (*Node, error) {
 		ListenAddress: ":" + port,
 		PublicURL:     os.Getenv("AGENT_CALLBACK_URL"),
 		Token:         os.Getenv("AGENTFIELD_API_KEY"),
+		EnableDID:     true,
+		VCEnabled:     true,
 		Tags:          []string{"scientific-writing", "paper-generation", "latex", "figures"},
 		CLIConfig:     &agent.CLIConfig{AppName: "preprint-af", AppDescription: Description},
 		HarnessConfig: &agent.HarnessConfig{
@@ -42,6 +51,7 @@ func Build() (*Node, error) {
 			Model:          harnessModel,
 			MaxTurns:       envInt("HARNESS_MAX_TURNS", 40),
 			PermissionMode: envOr("HARNESS_PERMISSION_MODE", "auto"),
+			Timeout:        envInt("AGENTFIELD_HARNESS_TIMEOUT_SECONDS", 1800),
 			Env:            map[string]string{"OPENROUTER_API_KEY": key},
 		},
 	}
