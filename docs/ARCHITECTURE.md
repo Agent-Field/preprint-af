@@ -116,7 +116,8 @@ outputs. Missing evidence becomes `\todobox{...}` and `TODO.md`, never an invent
 
 Run `latexmk` for at most three attempts. A failed attempt may invoke one LaTeX-only repair worker;
 that worker may repair compilation but may not change scientific content, numbers, citations, or
-prose meaning. Success requires a non-empty `paper/main.pdf`.
+prose meaning. The Go compile gate requires a zero `latexmk` exit status; it deliberately rejects
+a partial PDF left behind by a non-zero build.
 
 ### Critique and repair
 
@@ -165,8 +166,9 @@ inspectable and recoverable.
 6. Prompt text and discovery schemas are API contracts. Golden fixtures under package-local
    `testdata/` were captured from the final reference implementation and require intentional
    review to change.
-7. A successful run must finish with a compiled PDF; a high prose score cannot bypass compilation
-   or fidelity blockers.
+7. Quality-threshold convergence requires a compiled PDF and no fidelity blocker. Plateau,
+   no-repair, or safety-cap stops remain honest terminal outcomes and return an empty `pdf_path`
+   when the final compile did not pass.
 
 ## Packaging and verification
 

@@ -48,7 +48,7 @@ Real output, not a mockup: the bundled example ([`examples/serve-paper`](example
 ## Why preprint-af
 
 - **Writes like a scientist, not a chatbot.** Claims-first paragraphs, precise language, varied sentence rhythm. A deterministic linter strips AI tells (em dashes, hype phrases, uniform cadence) before any model spends a token judging the prose. No writing skill required on your end.
-- **Rigorous and evidence-grounded.** Every quantitative claim traces to a fact in your data. A fidelity auditor fails the build on any number or citation it cannot source, so the paper cannot drift into confabulation. It never invents a result.
+- **Rigorous and evidence-grounded.** Every quantitative claim traces to a fact in your data. A fidelity auditor blocks quality-threshold convergence on any number or citation it cannot source, so the paper cannot silently pass with confabulated evidence. It never invents a result.
 - **Finds the strongest story.** A positioning tournament tests five to six framings of your results and locks the one that lands, so the whole paper argues in one direction instead of listing findings.
 - **Organizes the narrative flow.** A blueprint gives every section a job and a transition contract (what it must establish for the next), and a narrative critic checks that the body delivers what the title promises.
 - **Tells you what would make it stronger.** A reviewer panel raises peer-review-grade objections, and `REVIEW.md` plus `TODO.md` collect the missing experiments, soft claims, and open gaps as concrete next steps.
@@ -150,8 +150,8 @@ model tokens are spent judging it.
 ### Convergence, not a fixed number of passes
 The revision loop stops when the paper is actually done: the quality threshold is met with a clean
 compile and no fidelity blockers, or the score plateaus across rounds, or there is nothing left to
-repair. `max_rounds` is only a safety cap. Because OpenCode enforces no turn or budget limits, the
-loop budget is enforced by the node.
+repair. `max_rounds` is the safety cap. The node also bounds OpenCode concurrency and wall-clock
+time; the OpenCode provider does not enforce the portable `max_turns` or `max_budget_usd` fields.
 
 ---
 
@@ -222,7 +222,8 @@ call, so the parallel reasoner graph remains visible in the workflow DAG.
 | `allow_web` | `true` | Allow web lookups for real, verifiable citations and a novelty scan. |
 | `dry_run` | `false` | Stop after evidence + positioning + blueprint; write no paper. |
 | `quality_threshold` | `0.90` | Score at which the loop may converge. |
-| `model` | DeepSeek v4 Pro | Any LiteLLM-style `openrouter/…` model for both reasoning and OpenCode. |
+| `plateau_delta` | `0.01` | Minimum score improvement before a round counts toward the plateau stop. |
+| `model` | DeepSeek v4 Pro | Any `openrouter/…` model for both direct reasoning and OpenCode. |
 
 Set `dry_run: true` for a cheap preview of the strategy (the winning title, abstract, and section
 plan) before committing to a full write.
